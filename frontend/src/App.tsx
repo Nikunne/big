@@ -30,7 +30,13 @@ const CLAIM_COOLDOWN_MS = 3000
 const EMAIL_ADDRESS = 'contact@bigdick.fyi'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 const SLOT_SYMBOLS = ['BD', 'FYI', '1000', '!!!', '777']
-const FLAX_PRIZES = [100, 200, 500, 1000, 2500]
+const FLAX_PRIZES = [
+  { amount: 1000, weight: 40 },
+  { amount: 2500, weight: 25 },
+  { amount: 5000, weight: 18 },
+  { amount: 10000, weight: 12 },
+  { amount: 100000, weight: 5 },
+]
 const GAME_HELP: Record<GameName, { title: string; description: string }> = {
   slots: {
     title: 'Slots',
@@ -73,20 +79,39 @@ const shuffle = <Item,>(items: Item[]) => {
   return shuffledItems
 }
 
+const pickWeightedFlaxPrize = (availablePrizes = FLAX_PRIZES) => {
+  const totalWeight = availablePrizes.reduce((total, prize) => total + prize.weight, 0)
+  let pick = Math.random() * totalWeight
+
+  for (const prize of availablePrizes) {
+    pick -= prize.weight
+
+    if (pick <= 0) {
+      return prize.amount
+    }
+  }
+
+  return availablePrizes[availablePrizes.length - 1].amount
+}
+
 const createFlaxTicket = () => {
   const isWinningTicket = Math.random() < 0.35
-  const winningPrize = FLAX_PRIZES[Math.floor(Math.random() * FLAX_PRIZES.length)]
-  const prizes = isWinningTicket
-    ? [
-        winningPrize,
-        winningPrize,
-        winningPrize,
-        ...shuffle(FLAX_PRIZES.filter((prize) => prize !== winningPrize)).flatMap((prize) => [
-          prize,
-          prize,
-        ]).slice(0, 6),
-      ]
-    : shuffle(FLAX_PRIZES.flatMap((prize) => [prize, prize])).slice(0, 9)
+  const winningPrize = pickWeightedFlaxPrize()
+  const prizes = isWinningTicket ? [winningPrize, winningPrize, winningPrize] : []
+  const prizeCounts = prizes.reduce<Record<number, number>>((counts, prize) => ({
+    ...counts,
+    [prize]: (counts[prize] ?? 0) + 1,
+  }), {})
+
+  while (prizes.length < 9) {
+    const availablePrizes = FLAX_PRIZES.filter((prize) => {
+      const maxCopies = prize.amount === winningPrize && isWinningTicket ? 3 : 2
+      return (prizeCounts[prize.amount] ?? 0) < maxCopies
+    })
+    const prize = pickWeightedFlaxPrize(availablePrizes)
+    prizes.push(prize)
+    prizeCounts[prize] = (prizeCounts[prize] ?? 0) + 1
+  }
 
   return shuffle(prizes).map((prize, id) => ({
     id,
@@ -98,7 +123,7 @@ const createFlaxTicket = () => {
 const getFlaxPayout = (ticket: FlaxSquare[]) => {
   const prizeCounts = ticket.reduce<Record<number, number>>((counts, square) => ({
     ...counts,
-    [square.prize]: (counts[square.prize] ?? 0) + 1,
+    ...(square.scratched ? { [square.prize]: (counts[square.prize] ?? 0) + 1 } : {}),
   }), {})
   const winningPrize = Object.entries(prizeCounts)
     .find(([, count]) => count >= 3)?.[0]
@@ -143,6 +168,7 @@ function App() {
   const [diceRoll, setDiceRoll] = useState(6)
   const [luckyNumber, setLuckyNumber] = useState(1)
   const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket())
+  const [flaxPaidPrize, setFlaxPaidPrize] = useState(0)
   const [activeHelp, setActiveHelp] = useState<GameName | ''>('')
   const [gameResult, setGameResult] = useState<GameResult>({
     title: 'Games waiting',
@@ -610,6 +636,7 @@ function App() {
     }
 
     setFlaxTicket(createFlaxTicket())
+    setFlaxPaidPrize(0)
     setGameResult({
       title: 'FLAX-lodd ready',
       detail: `Spent ${cost}. Scratch all 9 squares to check the prize.`,
@@ -625,24 +652,56 @@ function App() {
       const nextTicket = ticket.map((square) => (
         square.id === squareId ? { ...square, scratched: true } : square
       ))
+      const payout = flaxPaidPrize === 0 ? getFlaxPayout(nextTicket) : 0
       const isFinished = nextTicket.every((square) => square.scratched)
 
-      if (isFinished) {
-        const payout = getFlaxPayout(nextTicket)
-
-        if (payout > 0) {
-          emitFloatingDelta('flax', payout)
-          updateCoins(activeCasinoUser.username, payout)
-        }
-
+      if (payout > 0) {
+        setFlaxPaidPrize(payout)
+        emitFloatingDelta('flax', payout)
+        updateCoins(activeCasinoUser.username, payout)
         setGameResult({
-          title: payout > 0 ? 'FLAX paid' : 'FLAX missed',
-          detail: payout > 0
-            ? `Three equal ${payout} prizes. Won ${payout}.`
-            : 'No three equal prize numbers on this ticket.',
+          title: 'FLAX paid',
+          detail: `Three equal ${payout} prizes. Won ${payout}. Scratch the rest of the ticket.`,
+        })
+      }
+
+      if (isFinished) {
+        setGameResult({
+          title: flaxPaidPrize > 0 || payout > 0 ? 'FLAX complete' : 'No win',
+          detail: flaxPaidPrize > 0 || payout > 0
+            ? `Ticket finished. Paid ${flaxPaidPrize || payout} coins.`
+            : 'No three equal prize numbers on this ticket. No win.',
         })
         finishGame('flax')
       }
+
+      return nextTicket
+    })
+  }
+
+  const scratchAllFlaxSquares = () => {
+    if (!gameLocks.current.flax || !activeCasinoUser || activeCasinoUser.username !== currentUsername) {
+      return
+    }
+
+    setFlaxTicket((ticket) => {
+      const nextTicket = ticket.map((square) => ({ ...square, scratched: true }))
+      const payout = flaxPaidPrize === 0 ? getFlaxPayout(nextTicket) : 0
+      const paidPrize = flaxPaidPrize || payout
+
+      if (payout > 0) {
+        setFlaxPaidPrize(payout)
+        emitFloatingDelta('flax', payout)
+        updateCoins(activeCasinoUser.username, payout)
+      }
+
+      setGameResult({
+        title: paidPrize > 0 ? 'FLAX complete' : 'No win',
+        detail: paidPrize > 0
+          ? `Ticket finished. Paid ${paidPrize} coins.`
+          : 'No three equal prize numbers on this ticket. No win.',
+      })
+      finishGame('flax')
 
       return nextTicket
     })
@@ -933,14 +992,24 @@ function App() {
               ))}
             </div>
             <p>Scratch 9 squares. Three equal prize numbers wins that prize.</p>
-            <button
-              className="game-button"
-              type="button"
-              disabled={!isOwnPage || animatingGames.flax}
-              onClick={buyFlaxTicket}
-            >
-              {animatingGames.flax ? 'Scratch ticket' : 'Buy ticket'}
-            </button>
+            <div className="game-actions">
+              <button
+                className="game-button"
+                type="button"
+                disabled={!isOwnPage || animatingGames.flax}
+                onClick={buyFlaxTicket}
+              >
+                Buy ticket
+              </button>
+              <button
+                className="game-button alt"
+                type="button"
+                disabled={!isOwnPage || !animatingGames.flax}
+                onClick={scratchAllFlaxSquares}
+              >
+                Scratch all
+              </button>
+            </div>
           </article>
 
           <aside className="game-result" aria-live="polite">

@@ -942,7 +942,7 @@ h1 {
 }
 
 .slots-game.is-playing .game-reels span::before {
-  content: 'BD\A FYI\A 777\A 1000\A !!!\A BD\A FYI\A 777';
+  content: 'BD\A FYI\A 777\A 1000\A !!!\A BD\A FYI\A 777\A 1000\A !!!\A BD\A FYI\A 777\A 1000\A !!!';
   position: absolute;
   inset: -6px 0 auto;
   display: block;
@@ -1155,7 +1155,7 @@ h1 {
   color: #101010;
   cursor: pointer;
   font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', var(--heading);
-  font-size: clamp(19px, 2.6vw, 34px);
+  font-size: clamp(15px, 2.1vw, 30px);
   font-variant-numeric: tabular-nums;
   line-height: 0.9;
 }
@@ -1178,27 +1178,27 @@ h1 {
   cursor: default;
 }
 
-.flax-square.is-scratched.flax-prize-100 {
+.flax-square.is-scratched.flax-prize-1000 {
   background: #77ff68;
   text-shadow: 3px 3px 0 #fffdf5;
 }
 
-.flax-square.is-scratched.flax-prize-200 {
+.flax-square.is-scratched.flax-prize-2500 {
   background: #00e1ff;
   text-shadow: 3px 3px 0 #fffdf5;
 }
 
-.flax-square.is-scratched.flax-prize-500 {
+.flax-square.is-scratched.flax-prize-5000 {
   background: #fff200;
   text-shadow: 3px 3px 0 #fffdf5;
 }
 
-.flax-square.is-scratched.flax-prize-1000 {
+.flax-square.is-scratched.flax-prize-10000 {
   background: #ff72c8;
   text-shadow: 3px 3px 0 #fffdf5;
 }
 
-.flax-square.is-scratched.flax-prize-2500 {
+.flax-square.is-scratched.flax-prize-100000 {
   background: #101010;
   color: #fffdf5;
   text-shadow: 3px 3px 0 #ff72c8;
@@ -1489,7 +1489,7 @@ button:focus-visible {
     transform: translateY(0);
   }
   to {
-    transform: translateY(-960px);
+    transform: translateY(-864px);
   }
 }
 
@@ -1498,7 +1498,7 @@ button:focus-visible {
     transform: translateY(0);
   }
   to {
-    transform: translateY(-1056px);
+    transform: translateY(-960px);
   }
 }
 
@@ -1507,7 +1507,7 @@ button:focus-visible {
     transform: translateY(0);
   }
   to {
-    transform: translateY(-1152px);
+    transform: translateY(-1056px);
   }
 }
 
