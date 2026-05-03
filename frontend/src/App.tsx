@@ -4,7 +4,6 @@ import './App.css'
 
 type UserRecord = {
   username: string
-  passwordHash: string
   coins: number
   lastClaimAt: number
 }
@@ -21,10 +20,10 @@ type FloatingDelta = {
   amount: number
 }
 
-const USERS_STORAGE_KEY = 'bigdick-fyi-users'
 const SESSION_STORAGE_KEY = 'bigdick-fyi-current-user'
 const CLAIM_COOLDOWN_MS = 3000
 const EMAIL_ADDRESS = 'contact@bigdick.fyi'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 const SLOT_SYMBOLS = ['BD', 'FYI', '1000', '!!!', '777']
 const GAME_HELP: Record<GameName, { title: string; description: string }> = {
   slots: {
@@ -49,37 +48,29 @@ const GAME_HELP: Record<GameName, { title: string; description: string }> = {
   },
 }
 
-const getUsers = (): UserRecord[] => {
-  const storedUsers = window.localStorage.getItem(USERS_STORAGE_KEY)
-
-  if (!storedUsers) {
-    return []
-  }
-
-  try {
-    const parsedUsers = JSON.parse(storedUsers)
-    return Array.isArray(parsedUsers) ? parsedUsers : []
-  } catch {
-    return []
-  }
-}
-
-const saveUsers = (users: UserRecord[]) => {
-  window.localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users))
-}
-
 const normalizeUsername = (username: string) => username.trim().toLowerCase()
 
-const hashPassword = async (password: string) => {
-  const encodedPassword = new TextEncoder().encode(password)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', encodedPassword)
-  const hashBytes = Array.from(new Uint8Array(hashBuffer))
-  return hashBytes.map((byte) => byte.toString(16).padStart(2, '0')).join('')
+const apiRequest = async <ResponseBody,>(path: string, options: RequestInit = {}) => {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  })
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(body.error ?? 'Request failed.')
+  }
+
+  return body as ResponseBody
 }
 
 function App() {
   const [posterRotation, setPosterRotation] = useState(0)
-  const [users, setUsers] = useState<UserRecord[]>(() => getUsers())
+  const [users, setUsers] = useState<UserRecord[]>([])
+  const [isLoadingUsers, setIsLoadingUsers] = useState(true)
   const [currentUsername, setCurrentUsername] = useState(
     () => window.localStorage.getItem(SESSION_STORAGE_KEY) ?? '',
   )
@@ -138,11 +129,49 @@ function App() {
     '--poster-spin': `${posterRotation}deg`,
   } as CSSProperties
 
+  const upsertUser = (nextUser: UserRecord) => {
+    setUsers((storedUsers) => {
+      const userExists = storedUsers.some((user) => user.username === nextUser.username)
+
+      if (!userExists) {
+        return [...storedUsers, nextUser].sort((firstUser, secondUser) =>
+          firstUser.username.localeCompare(secondUser.username),
+        )
+      }
+
+      return storedUsers.map((user) => (
+        user.username === nextUser.username ? nextUser : user
+      ))
+    })
+  }
+
   useEffect(() => {
     const handlePopState = () => setRoutePath(window.location.pathname)
 
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    let isMounted = true
+
+    apiRequest<{ users: UserRecord[] }>('/api/users')
+      .then(({ users: loadedUsers }) => {
+        if (isMounted) {
+          setUsers(loadedUsers)
+          setIsLoadingUsers(false)
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setAuthMessage('Could not load users from the database.')
+          setIsLoadingUsers(false)
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   useEffect(() => {
@@ -187,42 +216,22 @@ function App() {
       return
     }
 
-    const passwordHash = await hashPassword(password)
-    const existingUser = users.find((user) => user.username === username)
+    try {
+      const endpoint = authMode === 'signup' ? '/api/signup' : '/api/login'
+      const { user } = await apiRequest<{ user: UserRecord }>(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      })
 
-    if (authMode === 'signup') {
-      if (existingUser) {
-        setAuthMessage('That username is already taken.')
-        return
-      }
-
-      const nextUser = {
-        username,
-        passwordHash,
-        coins: 0,
-        lastClaimAt: 0,
-      }
-      const nextUsers = [...users, nextUser]
-      setUsers(nextUsers)
-      saveUsers(nextUsers)
+      upsertUser(user)
       setCurrentUsername(username)
       window.localStorage.setItem(SESSION_STORAGE_KEY, username)
       setAuthPassword('')
-      setAuthMessage('Account created.')
+      setAuthMessage(authMode === 'signup' ? 'Account created.' : 'Logged in.')
       goToPath(`/users/${username}`)
-      return
+    } catch (error) {
+      setAuthMessage(error instanceof Error ? error.message : 'Login failed.')
     }
-
-    if (!existingUser || existingUser.passwordHash !== passwordHash) {
-      setAuthMessage('Username or password is wrong.')
-      return
-    }
-
-    setCurrentUsername(username)
-    window.localStorage.setItem(SESSION_STORAGE_KEY, username)
-    setAuthPassword('')
-    setAuthMessage('Logged in.')
-    goToPath(`/users/${username}`)
   }
 
   const handleLogout = () => {
@@ -231,30 +240,29 @@ function App() {
     goToPath('/')
   }
 
-  const claimCoins = () => {
+  const claimCoins = async () => {
     if (!activeCasinoUser || !canClaimCoins || activeCasinoUser.username !== currentUsername) {
       return
     }
 
-    const nextUsers = users.map((user) => {
-      if (user.username !== activeCasinoUser.username) {
-        return user
-      }
-
-      return {
-        ...user,
-        coins: user.coins + 1000,
-        lastClaimAt: Date.now(),
-      }
-    })
-    setUsers(nextUsers)
-    saveUsers(nextUsers)
-    setNow(Date.now())
+    try {
+      const { user } = await apiRequest<{ user: UserRecord }>(
+        `/api/users/${encodeURIComponent(activeCasinoUser.username)}/claim`,
+        { method: 'POST' },
+      )
+      upsertUser(user)
+      setNow(Date.now())
+    } catch (error) {
+      setGameResult({
+        title: 'Claim failed',
+        detail: error instanceof Error ? error.message : 'Could not claim coins.',
+      })
+    }
   }
 
-  const updateCoins = (username: string, coinDelta: number) => {
+  const updateCoins = async (username: string, coinDelta: number) => {
     setUsers((storedUsers) => {
-      const nextUsers = storedUsers.map((user) => {
+      return storedUsers.map((user) => {
         if (user.username !== username) {
           return user
         }
@@ -264,36 +272,56 @@ function App() {
           coins: Math.max(0, user.coins + coinDelta),
         }
       })
-      saveUsers(nextUsers)
-      return nextUsers
     })
+
+    try {
+      const { user } = await apiRequest<{ user: UserRecord }>(
+        `/api/users/${encodeURIComponent(username)}/adjust-coins`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ delta: coinDelta }),
+        },
+      )
+      upsertUser(user)
+    } catch {
+      const { users: loadedUsers } = await apiRequest<{ users: UserRecord[] }>('/api/users')
+      setUsers(loadedUsers)
+    }
   }
 
-  const setUserCoins = (username: string, coins: number) => {
+  const setUserCoins = async (username: string, coins: number) => {
+    const normalizedCoins = Math.max(0, Math.floor(coins))
+
     setUsers((storedUsers) => {
-      const nextUsers = storedUsers.map((user) => {
+      return storedUsers.map((user) => {
         if (user.username !== username) {
           return user
         }
 
         return {
           ...user,
-          coins: Math.max(0, Math.floor(coins)),
+          coins: normalizedCoins,
         }
       })
-      saveUsers(nextUsers)
-      return nextUsers
     })
+
+    try {
+      const { user } = await apiRequest<{ user: UserRecord }>(
+        `/api/users/${encodeURIComponent(username)}/coins`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ coins: normalizedCoins }),
+        },
+      )
+      upsertUser(user)
+    } catch {
+      const { users: loadedUsers } = await apiRequest<{ users: UserRecord[] }>('/api/users')
+      setUsers(loadedUsers)
+    }
   }
 
   const adjustUserCoins = (username: string, coinDelta: number) => {
-    const user = users.find((candidate) => candidate.username === username)
-
-    if (!user) {
-      return
-    }
-
-    setUserCoins(username, user.coins + coinDelta)
+    updateCoins(username, coinDelta)
   }
 
   const emitFloatingDelta = (game: GameName, amount: number, delay = 0) => {
@@ -580,6 +608,17 @@ function App() {
   )
 
   const renderCasinoPage = () => {
+    if (isLoadingUsers) {
+      return (
+        <main className="user-page">
+          <section className="missing-user">
+            <p className="eyebrow">Loading database</p>
+            <h1>Fetching users</h1>
+          </section>
+        </main>
+      )
+    }
+
     if (!activeCasinoUser) {
       return (
         <main className="user-page">
