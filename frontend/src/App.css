@@ -224,14 +224,28 @@ h1 {
 }
 
 .chaos-poster {
+  --poster-spin: 0deg;
   position: relative;
+  display: block;
+  width: 100%;
   min-height: 540px;
+  padding: 0;
   border: 7px solid #101010;
   background:
     linear-gradient(45deg, transparent 25%, rgba(255, 255, 255, 0.32) 25% 50%, transparent 50% 75%, rgba(255, 255, 255, 0.32) 75%) 0 0 / 44px 44px,
     #ff72c8;
   box-shadow: 16px 16px 0 #101010;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: none;
   transform: rotate(2deg);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.chaos-poster:hover {
+  box-shadow: 20px 20px 0 #101010;
+  transform: rotate(2deg) translate(-4px, -4px);
 }
 
 .chaos-poster img {
@@ -249,7 +263,8 @@ h1 {
   border: 5px solid #101010;
   border-radius: 50%;
   background: repeating-conic-gradient(#fff200 0 8deg, #00e1ff 8deg 16deg, #fffdf5 16deg 24deg);
-  animation: spin 22s linear infinite;
+  transform: rotate(var(--poster-spin));
+  transition: transform 1.8s cubic-bezier(0.12, 0.7, 0.08, 1);
 }
 
 .poster-label {
@@ -533,7 +548,8 @@ h1 {
   text-transform: none;
 }
 
-a:focus-visible {
+a:focus-visible,
+button:focus-visible {
   outline: 4px solid #fff;
   outline-offset: 4px;
 }
@@ -544,12 +560,6 @@ a:focus-visible {
   }
   to {
     transform: translateX(calc(-100% - 28px));
-  }
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 
@@ -609,6 +619,10 @@ a:focus-visible {
 
   .price-ticket {
     transform: none;
+  }
+
+  .chaos-poster:hover {
+    transform: translate(-4px, -4px);
   }
 
   .mail-card {

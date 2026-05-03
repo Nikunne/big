@@ -1,7 +1,9 @@
+import { type CSSProperties, useState } from 'react'
 import heroImg from './assets/hero.png'
 import './App.css'
 
 function App() {
+  const [posterRotation, setPosterRotation] = useState(0)
   const badges = ['Certified oversized vibe', 'Questionable domain', 'Very official', 'Open for mail']
   const menuItems = ['Home', 'Flavor', 'Evidence', 'Buy Domain', 'Contact']
   const details = [
@@ -9,6 +11,14 @@ function App() {
     'Built for late-night clicks, accidental bookmarks, and serious unseriousness.',
     'No corporate manifesto. Just loud colors, polite chaos, and one email address.',
   ]
+
+  const posterStyle = {
+    '--poster-spin': `${posterRotation}deg`,
+  } as CSSProperties
+
+  const spinPoster = () => {
+    setPosterRotation((rotation) => rotation + 1080 + Math.floor(Math.random() * 720))
+  }
 
   return (
     <main>
@@ -50,13 +60,19 @@ function App() {
             </div>
           </div>
 
-          <div className="chaos-poster" aria-label="Decorative surreal poster">
+          <button
+            className="chaos-poster"
+            type="button"
+            onClick={spinPoster}
+            style={posterStyle}
+            aria-label="Spin the wheel"
+          >
             <div className="sunburst"></div>
             <img src={heroImg} alt="" />
             <div className="poster-label label-one">100% fyi</div>
             <div className="poster-label label-two">open 25/8</div>
             <div className="poster-label label-three">big mood desk</div>
-          </div>
+          </button>
         </div>
       </section>
 
