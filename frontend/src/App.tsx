@@ -117,13 +117,15 @@ function App() {
     lucky: false,
   })
   const badges = ['Certified oversized vibe', 'Questionable domain', 'Very official', 'Coin faucet active']
-  const menuItems = ['Home', 'Flavor', 'Evidence', 'Buy Domain', 'Login', 'Contact']
   const details = [
     'A small internet monument with a large amount of confidence.',
     'Built for late-night clicks, accidental bookmarks, and serious unseriousness.',
     'No corporate manifesto. Just loud colors, polite chaos, and one email address.',
   ]
   const currentUser = users.find((user) => user.username === currentUsername)
+  const menuItems = currentUser
+    ? ['Home', 'Flavor', 'Evidence', 'Buy Domain', 'Contact']
+    : ['Home', 'Flavor', 'Evidence', 'Buy Domain', 'Login', 'Contact']
   const routedUsername = routePath.match(/^\/users\/([^/]+)\/?$/)?.[1] ?? ''
   const routedUser = users.find((user) => user.username === decodeURIComponent(routedUsername))
   const activeCasinoUser = routedUser ?? currentUser
@@ -735,17 +737,30 @@ function App() {
             <div className="lucky-display">{luckyNumber}</div>
             <p>Pick one number. Match the machine for 650.</p>
             <div className="game-actions three-actions">
-              {[1, 2, 3].map((number) => (
-                <button
-                  className="game-button"
-                  type="button"
-                  disabled={!isOwnPage || animatingGames.lucky}
-                  key={number}
-                  onClick={() => playLucky(number)}
-                >
-                  {number}
-                </button>
-              ))}
+              <button
+                className="game-button"
+                type="button"
+                disabled={!isOwnPage || animatingGames.lucky}
+                onClick={() => playLucky(1)}
+              >
+                1
+              </button>
+              <button
+                className="game-button"
+                type="button"
+                disabled={!isOwnPage || animatingGames.lucky}
+                onClick={() => playLucky(2)}
+              >
+                2
+              </button>
+              <button
+                className="game-button"
+                type="button"
+                disabled={!isOwnPage || animatingGames.lucky}
+                onClick={() => playLucky(3)}
+              >
+                3
+              </button>
             </div>
           </article>
 
@@ -876,9 +891,19 @@ function App() {
               <a className="primary-action" href={`mailto:${EMAIL_ADDRESS}`}>
                 {EMAIL_ADDRESS}
               </a>
-              <a className="secondary-action" href="#login">
-                Enter coin palace
-              </a>
+              {currentUser ? (
+                <button
+                  className="secondary-action"
+                  type="button"
+                  onClick={() => goToPath(`/users/${currentUser.username}`)}
+                >
+                  Enter coin palace
+                </button>
+              ) : (
+                <a className="secondary-action" href="#login">
+                  Enter coin palace
+                </a>
+              )}
             </div>
           </div>
 
@@ -949,7 +974,7 @@ function App() {
         </a>
       </section>
 
-      {renderAuthPanel()}
+      {!currentUser && renderAuthPanel()}
 
       <section className="contact-zone" id="contact">
         <div>
