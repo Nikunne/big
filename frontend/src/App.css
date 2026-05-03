@@ -1155,7 +1155,8 @@ h1 {
   color: #101010;
   cursor: pointer;
   font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', var(--heading);
-  font-size: clamp(22px, 3vw, 42px);
+  font-size: clamp(19px, 2.6vw, 34px);
+  font-variant-numeric: tabular-nums;
   line-height: 0.9;
 }
 
@@ -1164,7 +1165,10 @@ h1 {
   width: 100%;
   height: 100%;
   place-items: center;
-  overflow-wrap: anywhere;
+  padding: 0 3px;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .flax-square.is-scratched {
@@ -1172,6 +1176,32 @@ h1 {
   box-shadow: inset 0 0 0 5px #fff200;
   text-shadow: 3px 3px 0 #77ff68;
   cursor: default;
+}
+
+.flax-square.is-scratched.flax-prize-100 {
+  background: #77ff68;
+  text-shadow: 3px 3px 0 #fffdf5;
+}
+
+.flax-square.is-scratched.flax-prize-200 {
+  background: #00e1ff;
+  text-shadow: 3px 3px 0 #fffdf5;
+}
+
+.flax-square.is-scratched.flax-prize-500 {
+  background: #fff200;
+  text-shadow: 3px 3px 0 #fffdf5;
+}
+
+.flax-square.is-scratched.flax-prize-1000 {
+  background: #ff72c8;
+  text-shadow: 3px 3px 0 #fffdf5;
+}
+
+.flax-square.is-scratched.flax-prize-2500 {
+  background: #101010;
+  color: #fffdf5;
+  text-shadow: 3px 3px 0 #ff72c8;
 }
 
 .flax-square:disabled:not(.is-scratched) {

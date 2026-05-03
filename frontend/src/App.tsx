@@ -922,7 +922,7 @@ function App() {
             <div className="flax-ticket" aria-label="FLAX-lodd scratch ticket">
               {flaxTicket.map((square) => (
                 <button
-                  className={`flax-square ${square.scratched ? 'is-scratched' : ''}`}
+                  className={`flax-square flax-prize-${square.prize} ${square.scratched ? 'is-scratched' : ''}`}
                   disabled={!isOwnPage || !animatingGames.flax || square.scratched}
                   key={square.id}
                   type="button"
