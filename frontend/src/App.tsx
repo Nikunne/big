@@ -3,7 +3,7 @@ import './App.css'
 
 function App() {
   const badges = ['Certified oversized vibe', 'Questionable domain', 'Very official', 'Open for mail']
-  const menuItems = ['Home', 'Flavor', 'Evidence', 'Contact']
+  const menuItems = ['Home', 'Flavor', 'Evidence', 'Buy Domain', 'Contact']
   const details = [
     'A small internet monument with a large amount of confidence.',
     'Built for late-night clicks, accidental bookmarks, and serious unseriousness.',
@@ -19,7 +19,7 @@ function App() {
           </a>
           <div className="nav-links">
             {menuItems.map((item) => (
-              <a key={item} href={`#${item.toLowerCase()}`}>
+              <a key={item} href={`#${item.toLowerCase().replaceAll(' ', '-')}`}>
                 {item}
               </a>
             ))}
@@ -93,6 +93,22 @@ function App() {
             <p key={detail}>{detail}</p>
           ))}
         </aside>
+      </section>
+
+      <section className="domain-sale" id="buy-domain" aria-labelledby="domain-sale-title">
+        <div className="sale-copy">
+          <p className="eyebrow">Premium questionable property</p>
+          <h2 id="domain-sale-title">Buy bigdick.fyi</h2>
+          <p>
+            Own the loudest tiny corner of the internet for <strong>$10,000</strong>.
+            One domain. Infinite raised eyebrows. Zero boring business cards.
+          </p>
+        </div>
+        <a className="price-ticket" href="mailto:contact@bigdick.fyi?subject=I%20want%20to%20buy%20bigdick.fyi">
+          <span>Asking price</span>
+          <strong>$10,000</strong>
+          <em>serious unserious offers accepted</em>
+        </a>
       </section>
 
       <section className="contact-zone" id="contact">
