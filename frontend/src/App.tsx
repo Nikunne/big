@@ -595,7 +595,7 @@ function App() {
     }
 
     const isOwnPage = activeCasinoUser.username === currentUsername
-    const canAdminUsers = isOwnPage && activeCasinoUser.username === 'niklas'
+    const canAdminUsers = currentUsername === 'niklas'
 
     return (
       <main className="user-page">
