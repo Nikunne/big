@@ -13,11 +13,16 @@ type GameResult = {
   title: string
   detail: string
 }
-type GameName = 'slots' | 'flip' | 'highLow' | 'dice' | 'lucky'
+type GameName = 'slots' | 'flip' | 'highLow' | 'dice' | 'lucky' | 'flax'
 type FloatingDelta = {
   id: number
   game: GameName
   amount: number
+}
+type FlaxSquare = {
+  id: number
+  prize: number
+  scratched: boolean
 }
 
 const SESSION_STORAGE_KEY = 'bigdick-fyi-current-user'
@@ -25,6 +30,7 @@ const CLAIM_COOLDOWN_MS = 3000
 const EMAIL_ADDRESS = 'contact@bigdick.fyi'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 const SLOT_SYMBOLS = ['BD', 'FYI', '1000', '!!!', '777']
+const FLAX_PRIZES = [100, 200, 500, 1000, 2500]
 const GAME_HELP: Record<GameName, { title: string; description: string }> = {
   slots: {
     title: 'Slots',
@@ -46,9 +52,59 @@ const GAME_HELP: Record<GameName, { title: string; description: string }> = {
     title: 'Lucky pick',
     description: 'Costs 250 coins. Pick 1, 2, or 3. If the machine picks the same number, you get 650.',
   },
+  flax: {
+    title: 'FLAX-lodd',
+    description: 'Costs 300 coins. Scratch all 9 squares. Three equal prize numbers pays that prize.',
+  },
 }
 
 const normalizeUsername = (username: string) => username.trim().toLowerCase()
+
+const shuffle = <Item,>(items: Item[]) => {
+  const shuffledItems = [...items]
+
+  for (let index = shuffledItems.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1))
+    const item = shuffledItems[index]
+    shuffledItems[index] = shuffledItems[randomIndex]
+    shuffledItems[randomIndex] = item
+  }
+
+  return shuffledItems
+}
+
+const createFlaxTicket = () => {
+  const isWinningTicket = Math.random() < 0.35
+  const winningPrize = FLAX_PRIZES[Math.floor(Math.random() * FLAX_PRIZES.length)]
+  const prizes = isWinningTicket
+    ? [
+        winningPrize,
+        winningPrize,
+        winningPrize,
+        ...shuffle(FLAX_PRIZES.filter((prize) => prize !== winningPrize)).flatMap((prize) => [
+          prize,
+          prize,
+        ]).slice(0, 6),
+      ]
+    : shuffle(FLAX_PRIZES.flatMap((prize) => [prize, prize])).slice(0, 9)
+
+  return shuffle(prizes).map((prize, id) => ({
+    id,
+    prize,
+    scratched: false,
+  }))
+}
+
+const getFlaxPayout = (ticket: FlaxSquare[]) => {
+  const prizeCounts = ticket.reduce<Record<number, number>>((counts, square) => ({
+    ...counts,
+    [square.prize]: (counts[square.prize] ?? 0) + 1,
+  }), {})
+  const winningPrize = Object.entries(prizeCounts)
+    .find(([, count]) => count >= 3)?.[0]
+
+  return winningPrize ? Number(winningPrize) : 0
+}
 
 const apiRequest = async <ResponseBody,>(path: string, options: RequestInit = {}) => {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -86,6 +142,7 @@ function App() {
   const [highLowCard, setHighLowCard] = useState(() => Math.ceil(Math.random() * 13))
   const [diceRoll, setDiceRoll] = useState(6)
   const [luckyNumber, setLuckyNumber] = useState(1)
+  const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket())
   const [activeHelp, setActiveHelp] = useState<GameName | ''>('')
   const [gameResult, setGameResult] = useState<GameResult>({
     title: 'Games waiting',
@@ -99,6 +156,7 @@ function App() {
     highLow: false,
     dice: false,
     lucky: false,
+    flax: false,
   })
   const gameLocks = useRef<Record<GameName, boolean>>({
     slots: false,
@@ -106,6 +164,7 @@ function App() {
     highLow: false,
     dice: false,
     lucky: false,
+    flax: false,
   })
   const badges = ['Certified oversized vibe', 'Questionable domain', 'Very official', 'Coin faucet active']
   const details = [
@@ -542,6 +601,53 @@ function App() {
     }, 2000)
   }
 
+  const buyFlaxTicket = () => {
+    const cost = 300
+    const username = beginGame('flax', cost)
+
+    if (!username) {
+      return
+    }
+
+    setFlaxTicket(createFlaxTicket())
+    setGameResult({
+      title: 'FLAX-lodd ready',
+      detail: `Spent ${cost}. Scratch all 9 squares to check the prize.`,
+    })
+  }
+
+  const scratchFlaxSquare = (squareId: number) => {
+    if (!gameLocks.current.flax || !activeCasinoUser || activeCasinoUser.username !== currentUsername) {
+      return
+    }
+
+    setFlaxTicket((ticket) => {
+      const nextTicket = ticket.map((square) => (
+        square.id === squareId ? { ...square, scratched: true } : square
+      ))
+      const isFinished = nextTicket.every((square) => square.scratched)
+
+      if (isFinished) {
+        const payout = getFlaxPayout(nextTicket)
+
+        if (payout > 0) {
+          emitFloatingDelta('flax', payout)
+          updateCoins(activeCasinoUser.username, payout)
+        }
+
+        setGameResult({
+          title: payout > 0 ? 'FLAX paid' : 'FLAX missed',
+          detail: payout > 0
+            ? `Three equal ${payout} prizes. Won ${payout}.`
+            : 'No three equal prize numbers on this ticket.',
+        })
+        finishGame('flax')
+      }
+
+      return nextTicket
+    })
+  }
+
   const copyEmail = async () => {
     await navigator.clipboard.writeText(EMAIL_ADDRESS)
     setCopyMessage('Copied')
@@ -801,6 +907,40 @@ function App() {
                 3
               </button>
             </div>
+          </article>
+
+          <article className={`game-card flax-game ${animatingGames.flax ? 'is-playing' : ''}`}>
+            {renderFloatingDeltas('flax')}
+            <div className="game-balance-badge" aria-live="polite">
+              <strong>{activeCasinoUser.coins.toLocaleString()} coins</strong>
+            </div>
+            <div className="game-heading">
+              <p className="eyebrow">Cost: 300</p>
+              <h2>FLAX-lodd</h2>
+              {renderGameHelpButton('flax')}
+            </div>
+            <div className="flax-ticket" aria-label="FLAX-lodd scratch ticket">
+              {flaxTicket.map((square) => (
+                <button
+                  className={`flax-square ${square.scratched ? 'is-scratched' : ''}`}
+                  disabled={!isOwnPage || !animatingGames.flax || square.scratched}
+                  key={square.id}
+                  type="button"
+                  onClick={() => scratchFlaxSquare(square.id)}
+                >
+                  <span>{square.scratched ? square.prize.toLocaleString() : '?'}</span>
+                </button>
+              ))}
+            </div>
+            <p>Scratch 9 squares. Three equal prize numbers wins that prize.</p>
+            <button
+              className="game-button"
+              type="button"
+              disabled={!isOwnPage || animatingGames.flax}
+              onClick={buyFlaxTicket}
+            >
+              {animatingGames.flax ? 'Scratch ticket' : 'Buy ticket'}
+            </button>
           </article>
 
           <aside className="game-result" aria-live="polite">

@@ -1061,6 +1061,13 @@ h1 {
     #77ff68;
 }
 
+.flax-game {
+  background:
+    repeating-linear-gradient(0deg, rgba(16, 16, 16, 0.12) 0 5px, transparent 5px 20px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.35) 0 8px, transparent 8px 26px),
+    #ff72c8;
+}
+
 .game-reels {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1125,6 +1132,50 @@ h1 {
 .lucky-display {
   background: #fffdf5;
   text-shadow: 5px 5px 0 #ff72c8;
+}
+
+.flax-ticket {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 5px solid #101010;
+  background: #101010;
+}
+
+.flax-square {
+  display: grid;
+  aspect-ratio: 1;
+  min-width: 0;
+  place-items: center;
+  border: 4px solid #101010;
+  background:
+    repeating-linear-gradient(135deg, #b9b9b9 0 5px, #e7e7e7 5px 10px);
+  box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.42);
+  color: #101010;
+  cursor: pointer;
+  font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', var(--heading);
+  font-size: clamp(22px, 3vw, 42px);
+  line-height: 0.9;
+}
+
+.flax-square span {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  overflow-wrap: anywhere;
+}
+
+.flax-square.is-scratched {
+  background: #fffdf5;
+  box-shadow: inset 0 0 0 5px #fff200;
+  text-shadow: 3px 3px 0 #77ff68;
+  cursor: default;
+}
+
+.flax-square:disabled:not(.is-scratched) {
+  cursor: not-allowed;
 }
 
 .game-actions {
