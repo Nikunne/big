@@ -77,6 +77,7 @@ type GameSettings = {
 const SESSION_STORAGE_KEY = 'bigdick-fyi-current-user'
 const SESSION_TOKEN_STORAGE_KEY = 'bigdick-fyi-session-token'
 const CLAIM_COOLDOWN_MS = 3000
+const FLAX_AUTOREVEAL_MS = 500
 const EMAIL_ADDRESS = 'contact@bigdick.fyi'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 const DEFAULT_GAME_SETTINGS: GameSettings = {
@@ -395,7 +396,6 @@ function App() {
 
     if (!getStoredSessionToken()) {
       clearSession()
-      setCurrentUsername('')
       return () => {
         isMounted = false
       }
@@ -783,6 +783,23 @@ function App() {
     return casinoUser.username
   }
 
+  const revealFlaxTicket = (ticket: FlaxSquare[]) => {
+    const nextTicket = ticket.map((square) => ({ ...square, scratched: false }))
+    setFlaxTicket(nextTicket)
+
+    const revealDelay = FLAX_AUTOREVEAL_MS / Math.max(nextTicket.length, 1)
+
+    nextTicket.forEach((square, index) => {
+      window.setTimeout(() => {
+        setFlaxTicket((currentTicket) => currentTicket.map((currentSquare) => (
+          currentSquare.id === square.id
+            ? { ...currentSquare, scratched: true }
+            : currentSquare
+        )))
+      }, Math.round(revealDelay * (index + 1)))
+    })
+  }
+
   const finishGame = (game: GameName) => {
     gameLocks.current[game] = false
     setAnimatingGames((games) => ({ ...games, [game]: false }))
@@ -1127,19 +1144,21 @@ function App() {
       const paidPrize = game.paidPrize || game.payout
 
       upsertUser(user)
-      setFlaxTicket(game.ticket)
+      revealFlaxTicket(game.ticket)
 
       if (game.payout > 0) {
-        emitFloatingDelta('flax', game.payout)
+        emitFloatingDelta('flax', game.payout, FLAX_AUTOREVEAL_MS)
       }
 
-      setGameResult({
-        title: paidPrize > 0 ? 'FLAX complete' : 'No win',
-        detail: paidPrize > 0
-          ? `Ticket finished. Paid ${paidPrize} coins.`
-          : 'No three equal prize numbers on this ticket. No win.',
-      })
-      finishGame('flax')
+      window.setTimeout(() => {
+        setGameResult({
+          title: paidPrize > 0 ? 'FLAX complete' : 'No win',
+          detail: paidPrize > 0
+            ? `Ticket finished. Paid ${paidPrize} coins.`
+            : 'No three equal prize numbers on this ticket. No win.',
+        })
+        finishGame('flax')
+      }, FLAX_AUTOREVEAL_MS)
     } catch (error) {
       setGameResult({
         title: 'Scratch rejected',
@@ -1575,10 +1594,11 @@ function App() {
               {flaxTicket.map((square) => (
                 <button
                   className={`flax-square flax-prize-${square.prize} ${square.scratched ? 'is-scratched' : ''}`}
+                  data-square-id={square.id}
                   disabled={!isOwnPage || !animatingGames.flax || square.scratched}
                   key={square.id}
                   type="button"
-                  onClick={() => scratchFlaxSquare(square.id)}
+                  onClick={(event) => scratchFlaxSquare(Number(event.currentTarget.dataset.squareId))}
                 >
                   <span>{square.scratched ? square.prize.toLocaleString() : '?'}</span>
                 </button>
@@ -1725,7 +1745,7 @@ function App() {
         <div className="hero-grid">
           <div className="hero-copy">
             <p className="eyebrow">Information you did not request</p>
-            <h1>bigdick.fyi</h1>
+            <h1 className="hero-title">bigdick.fyi</h1>
             <p className="lede">
               A tiny official-looking website for an extremely unserious domain.
               Bring questions, rumors, compliments, tiny business cards, and
@@ -1769,6 +1789,8 @@ function App() {
 
       {currentUsername === 'niklas' && showPricePanel && renderPricePanel()}
 
+      {renderTopList('home')}
+
       <section className="badge-strip" id="flavor" aria-label="Site highlights">
         {badges.map((badge) => (
           <div className="badge" key={badge}>
@@ -1776,8 +1798,6 @@ function App() {
           </div>
         ))}
       </section>
-
-      {renderTopList('home')}
 
       {!currentUser && renderAuthPanel()}
 
