@@ -740,6 +740,117 @@ h1 {
   text-transform: uppercase;
 }
 
+.top-list {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 18px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: clamp(18px, 4vw, 34px);
+  border: 7px solid #101010;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.74) 1px, transparent 1px) 0 0 / 26px 26px,
+    linear-gradient(rgba(255, 255, 255, 0.74) 1px, transparent 1px) 0 0 / 26px 26px,
+    #77ff68;
+  box-shadow: 14px 14px 0 #101010;
+  color: #101010;
+}
+
+.home-top-list {
+  max-width: none;
+  margin: 0;
+  border-width: 8px 0;
+  box-shadow: none;
+  background:
+    radial-gradient(circle at 16% 32%, #fff200 0 10%, transparent 11%),
+    radial-gradient(circle at 88% 70%, #ff72c8 0 11%, transparent 12%),
+    #00e1ff;
+}
+
+.user-top-list {
+  margin-top: clamp(22px, 4vw, 38px);
+}
+
+.top-list-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.top-list-header h2 {
+  color: #101010;
+  font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', var(--heading);
+  font-size: clamp(42px, 7vw, 92px);
+  line-height: 0.85;
+  text-align: right;
+  text-transform: uppercase;
+  text-shadow: 5px 5px 0 #fff200, 10px 10px 0 #ff72c8;
+}
+
+.top-list-ranks {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.top-list-ranks button,
+.top-list-empty {
+  width: 100%;
+  min-height: 116px;
+  padding: 12px;
+  border: 5px solid #101010;
+  background: #fffdf5;
+  box-shadow: 7px 7px 0 #101010;
+  color: #101010;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.top-list-ranks li:nth-child(1) button {
+  background: #fff200;
+}
+
+.top-list-ranks li:nth-child(2) button {
+  background: #ff72c8;
+}
+
+.top-list-ranks li:nth-child(3) button {
+  background: #00e1ff;
+}
+
+.top-list-ranks span,
+.top-list-ranks strong,
+.top-list-ranks em,
+.top-list-empty {
+  display: block;
+  font-family: var(--mono);
+  font-style: normal;
+  font-weight: 950;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.top-list-ranks span {
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.top-list-ranks strong {
+  margin-bottom: 10px;
+  overflow-wrap: anywhere;
+  font-size: clamp(18px, 2vw, 28px);
+}
+
+.top-list-ranks em {
+  font-size: 14px;
+}
+
 .user-page {
   min-height: 100svh;
   padding: 18px clamp(16px, 4vw, 56px) 56px;
@@ -934,6 +1045,11 @@ h1 {
 .game-card.is-playing .dice-display,
 .game-card.is-playing .lucky-display {
   animation: game-rumble 180ms steps(2, end) infinite;
+}
+
+.flip-game.is-playing .coin-display {
+  color: transparent;
+  text-shadow: none;
 }
 
 .slots-game.is-playing .game-reels span {
@@ -1231,6 +1347,14 @@ h1 {
   background: #fff200;
 }
 
+.autoplay-button {
+  background: #00e1ff;
+}
+
+.autoplay-button[aria-pressed='true'] {
+  background: #ff72c8;
+}
+
 .game-button:disabled {
   background: #fffdf5;
   cursor: not-allowed;
@@ -1522,7 +1646,8 @@ button:focus-visible {
   .casino-login,
   .casino-floor,
   .game-grid,
-  .game-result {
+  .game-result,
+  .top-list-ranks {
     grid-template-columns: 1fr;
   }
 
@@ -1602,16 +1727,19 @@ button:focus-visible {
   }
 
   .admin-header,
-  .admin-user {
+  .admin-user,
+  .top-list-header {
     align-items: stretch;
     grid-template-columns: 1fr;
   }
 
-  .admin-header {
+  .admin-header,
+  .top-list-header {
     flex-direction: column;
   }
 
-  .admin-header h2 {
+  .admin-header h2,
+  .top-list-header h2 {
     text-align: left;
   }
 }

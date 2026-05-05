@@ -29,6 +29,7 @@ const SESSION_STORAGE_KEY = 'bigdick-fyi-current-user'
 const CLAIM_COOLDOWN_MS = 3000
 const EMAIL_ADDRESS = 'contact@bigdick.fyi'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+const FLAX_COST = 1000
 const SLOT_SYMBOLS = ['BD', 'FYI', '1000', '!!!', '777']
 const FLAX_PRIZES = [
   { amount: 1000, weight: 40 },
@@ -60,11 +61,19 @@ const GAME_HELP: Record<GameName, { title: string; description: string }> = {
   },
   flax: {
     title: 'FLAX-lodd',
-    description: 'Costs 300 coins. Scratch all 9 squares. Three equal prize numbers pays that prize.',
+    description: `Costs ${FLAX_COST} coins. Scratch all 9 squares. Three equal prize numbers pays that prize.`,
   },
 }
 
 const normalizeUsername = (username: string) => username.trim().toLowerCase()
+
+const pickRandomCoinFace = () => (Math.random() > 0.5 ? 'BD' : 'FYI')
+
+const pickRandomHighLowGuess = (): 'higher' | 'lower' => (
+  Math.random() > 0.5 ? 'higher' : 'lower'
+)
+
+const pickRandomLuckyNumber = () => Math.ceil(Math.random() * 3)
 
 const shuffle = <Item,>(items: Item[]) => {
   const shuffledItems = [...items]
@@ -176,6 +185,14 @@ function App() {
   })
   const [adminCoinInputs, setAdminCoinInputs] = useState<Record<string, string>>({})
   const [floatingDeltas, setFloatingDeltas] = useState<FloatingDelta[]>([])
+  const [autoplayGames, setAutoplayGames] = useState<Record<GameName, boolean>>({
+    slots: false,
+    flip: false,
+    highLow: false,
+    dice: false,
+    lucky: false,
+    flax: false,
+  })
   const [animatingGames, setAnimatingGames] = useState<Record<GameName, boolean>>({
     slots: false,
     flip: false,
@@ -183,6 +200,22 @@ function App() {
     dice: false,
     lucky: false,
     flax: false,
+  })
+  const autoplayLocks = useRef<Record<GameName, boolean>>({
+    slots: false,
+    flip: false,
+    highLow: false,
+    dice: false,
+    lucky: false,
+    flax: false,
+  })
+  const autoplayTimeouts = useRef<Record<GameName, number | undefined>>({
+    slots: undefined,
+    flip: undefined,
+    highLow: undefined,
+    dice: undefined,
+    lucky: undefined,
+    flax: undefined,
   })
   const gameLocks = useRef<Record<GameName, boolean>>({
     slots: false,
@@ -209,6 +242,14 @@ function App() {
     ? Math.max(0, CLAIM_COOLDOWN_MS - (now - activeCasinoUser.lastClaimAt))
     : CLAIM_COOLDOWN_MS
   const canClaimCoins = claimWaitMs === 0
+  const topUsers = [...users]
+    .sort((firstUser, secondUser) => (
+      secondUser.coins - firstUser.coins
+      || firstUser.username.localeCompare(secondUser.username)
+    ))
+    .slice(0, 5)
+  const activeCasinoUserRef = useRef<UserRecord | undefined>(undefined)
+  const currentUsernameRef = useRef('')
 
   const posterStyle = {
     '--poster-spin': `${posterRotation}deg`,
@@ -262,6 +303,21 @@ function App() {
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 250)
     return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    activeCasinoUserRef.current = activeCasinoUser
+    currentUsernameRef.current = currentUsername
+  }, [activeCasinoUser, currentUsername])
+
+  useEffect(() => {
+    const timeouts = autoplayTimeouts.current
+
+    return () => {
+      Object.values(timeouts).forEach((timeout) => {
+        window.clearTimeout(timeout)
+      })
+    }
   }, [])
 
   useEffect(() => {
@@ -446,8 +502,55 @@ function App() {
     </button>
   )
 
+  const stopAutoplay = (game: GameName) => {
+    autoplayLocks.current[game] = false
+    window.clearTimeout(autoplayTimeouts.current[game])
+    autoplayTimeouts.current[game] = undefined
+    setAutoplayGames((games) => ({ ...games, [game]: false }))
+  }
+
+  const scheduleAutoplay = (game: GameName) => {
+    window.clearTimeout(autoplayTimeouts.current[game])
+    autoplayTimeouts.current[game] = window.setTimeout(() => {
+      autoplayTimeouts.current[game] = undefined
+
+      if (!autoplayLocks.current[game] || gameLocks.current[game]) {
+        return
+      }
+
+      runAutoplayGame(game)
+    }, 450)
+  }
+
+  const toggleAutoplay = (game: GameName) => {
+    const shouldStart = !autoplayLocks.current[game]
+    autoplayLocks.current[game] = shouldStart
+    setAutoplayGames((games) => ({ ...games, [game]: shouldStart }))
+
+    if (shouldStart && !gameLocks.current[game]) {
+      runAutoplayGame(game)
+    } else if (!shouldStart) {
+      window.clearTimeout(autoplayTimeouts.current[game])
+      autoplayTimeouts.current[game] = undefined
+    }
+  }
+
+  const renderAutoplayButton = (game: GameName) => (
+    <button
+      className="game-button autoplay-button"
+      type="button"
+      disabled={!activeCasinoUser || activeCasinoUser.username !== currentUsername}
+      aria-pressed={autoplayGames[game]}
+      onClick={() => toggleAutoplay(game)}
+    >
+      {autoplayGames[game] ? 'Stop auto' : 'Autoplay'}
+    </button>
+  )
+
   const canPlayGame = (cost: number) => {
-    if (!activeCasinoUser || activeCasinoUser.username !== currentUsername) {
+    const casinoUser = activeCasinoUserRef.current
+
+    if (!casinoUser || casinoUser.username !== currentUsernameRef.current) {
       setGameResult({
         title: 'Log in first',
         detail: 'Only the owner of this user page can play games.',
@@ -455,7 +558,7 @@ function App() {
       return false
     }
 
-    if (activeCasinoUser.coins < cost) {
+    if (casinoUser.coins < cost) {
       setGameResult({
         title: 'Need more coins',
         detail: `This game costs ${cost.toLocaleString()} coins.`,
@@ -467,25 +570,68 @@ function App() {
   }
 
   const beginGame = (game: GameName, cost: number) => {
-    if (gameLocks.current[game] || !canPlayGame(cost) || !activeCasinoUser) {
+    const casinoUser = activeCasinoUserRef.current
+
+    if (gameLocks.current[game] || !canPlayGame(cost) || !casinoUser) {
+      if (autoplayLocks.current[game]) {
+        stopAutoplay(game)
+      }
       return ''
     }
 
     gameLocks.current[game] = true
     setAnimatingGames((games) => ({ ...games, [game]: true }))
     emitFloatingDelta(game, -cost)
-    updateCoins(activeCasinoUser.username, -cost)
+    updateCoins(casinoUser.username, -cost)
     setGameResult({
       title: 'Bet placed',
       detail: `-${cost} coins. Result lands in 2 seconds.`,
     })
 
-    return activeCasinoUser.username
+    return casinoUser.username
   }
 
   const finishGame = (game: GameName) => {
     gameLocks.current[game] = false
     setAnimatingGames((games) => ({ ...games, [game]: false }))
+
+    if (autoplayLocks.current[game]) {
+      scheduleAutoplay(game)
+    }
+  }
+
+  const runAutoplayGame = (game: GameName) => {
+    if (game === 'slots') {
+      playSlots()
+      return
+    }
+
+    if (game === 'flip') {
+      playCoinFlip(pickRandomCoinFace())
+      return
+    }
+
+    if (game === 'highLow') {
+      playHighLow(pickRandomHighLowGuess())
+      return
+    }
+
+    if (game === 'dice') {
+      playDice()
+      return
+    }
+
+    if (game === 'lucky') {
+      playLucky(pickRandomLuckyNumber())
+      return
+    }
+
+    buyFlaxTicket()
+    window.setTimeout(() => {
+      if (autoplayLocks.current.flax) {
+        scratchAllFlaxSquares(true)
+      }
+    }, 450)
   }
 
   const playSlots = () => {
@@ -628,7 +774,7 @@ function App() {
   }
 
   const buyFlaxTicket = () => {
-    const cost = 300
+    const cost = FLAX_COST
     const username = beginGame('flax', cost)
 
     if (!username) {
@@ -644,7 +790,7 @@ function App() {
   }
 
   const scratchFlaxSquare = (squareId: number) => {
-    if (!gameLocks.current.flax || !activeCasinoUser || activeCasinoUser.username !== currentUsername) {
+    if (!animatingGames.flax || !activeCasinoUser || activeCasinoUser.username !== currentUsername) {
       return
     }
 
@@ -679,8 +825,8 @@ function App() {
     })
   }
 
-  const scratchAllFlaxSquares = () => {
-    if (!gameLocks.current.flax || !activeCasinoUser || activeCasinoUser.username !== currentUsername) {
+  const scratchAllFlaxSquares = (force = false) => {
+    if ((!force && !animatingGames.flax) || !activeCasinoUser || activeCasinoUser.username !== currentUsername) {
       return
     }
 
@@ -712,6 +858,33 @@ function App() {
     setCopyMessage('Copied')
     window.setTimeout(() => setCopyMessage(''), 1400)
   }
+
+  const renderTopList = (variant: 'home' | 'user') => (
+    <section
+      className={`top-list ${variant === 'home' ? 'home-top-list' : 'user-top-list'}`}
+      aria-labelledby={`${variant}-top-list-title`}
+    >
+      <div className="top-list-header">
+        <p className="eyebrow">Top list</p>
+        <h2 id={`${variant}-top-list-title`}>Coin leaders</h2>
+      </div>
+      {topUsers.length > 0 ? (
+        <ol className="top-list-ranks">
+          {topUsers.map((user, index) => (
+            <li key={user.username}>
+              <button type="button" onClick={() => goToPath(`/users/${user.username}`)}>
+                <span>#{index + 1}</span>
+                <strong>{user.username}</strong>
+                <em>{user.coins.toLocaleString()} coins</em>
+              </button>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="top-list-empty">No users yet.</p>
+      )}
+    </section>
+  )
 
   const renderAuthPanel = () => (
     <section className="casino-login" id="login" aria-labelledby="login-title">
@@ -845,6 +1018,8 @@ function App() {
           </div>
         </section>
 
+        {renderTopList('user')}
+
         <section className="game-grid" aria-label="Casino games">
           <article className={`game-card slots-game ${animatingGames.slots ? 'is-playing' : ''}`}>
             {renderFloatingDeltas('slots')}
@@ -865,6 +1040,7 @@ function App() {
             <button className="game-button" type="button" disabled={!isOwnPage || animatingGames.slots} onClick={playSlots}>
               {animatingGames.slots ? 'Spinning' : 'Spin'}
             </button>
+            {renderAutoplayButton('slots')}
           </article>
 
           <article className={`game-card flip-game ${animatingGames.flip ? 'is-playing' : ''}`}>
@@ -887,6 +1063,7 @@ function App() {
                 FYI
               </button>
             </div>
+            {renderAutoplayButton('flip')}
           </article>
 
           <article className={`game-card high-low-game ${animatingGames.highLow ? 'is-playing' : ''}`}>
@@ -909,6 +1086,7 @@ function App() {
                 Lower
               </button>
             </div>
+            {renderAutoplayButton('highLow')}
           </article>
 
           <article className={`game-card dice-game ${animatingGames.dice ? 'is-playing' : ''}`}>
@@ -926,6 +1104,7 @@ function App() {
             <button className="game-button" type="button" disabled={!isOwnPage || animatingGames.dice} onClick={playDice}>
               {animatingGames.dice ? 'Rolling' : 'Roll'}
             </button>
+            {renderAutoplayButton('dice')}
           </article>
 
           <article className={`game-card lucky-game ${animatingGames.lucky ? 'is-playing' : ''}`}>
@@ -966,6 +1145,7 @@ function App() {
                 3
               </button>
             </div>
+            {renderAutoplayButton('lucky')}
           </article>
 
           <article className={`game-card flax-game ${animatingGames.flax ? 'is-playing' : ''}`}>
@@ -974,7 +1154,7 @@ function App() {
               <strong>{activeCasinoUser.coins.toLocaleString()} coins</strong>
             </div>
             <div className="game-heading">
-              <p className="eyebrow">Cost: 300</p>
+              <p className="eyebrow">Cost: {FLAX_COST}</p>
               <h2>FLAX-lodd</h2>
               {renderGameHelpButton('flax')}
             </div>
@@ -1005,11 +1185,12 @@ function App() {
                 className="game-button alt"
                 type="button"
                 disabled={!isOwnPage || !animatingGames.flax}
-                onClick={scratchAllFlaxSquares}
+                onClick={() => scratchAllFlaxSquares()}
               >
                 Scratch all
               </button>
             </div>
+            {renderAutoplayButton('flax')}
           </article>
 
           <aside className="game-result" aria-live="polite">
@@ -1205,6 +1386,8 @@ function App() {
           ))}
         </aside>
       </section>
+
+      {renderTopList('home')}
 
       <section className="domain-sale" id="buy-domain" aria-labelledby="domain-sale-title">
         <div className="sale-copy">
