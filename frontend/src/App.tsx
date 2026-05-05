@@ -1777,6 +1777,10 @@ function App() {
         ))}
       </section>
 
+      {renderTopList('home')}
+
+      {!currentUser && renderAuthPanel()}
+
       <section className="content-grid" id="evidence">
         <article className="feature-panel tall">
           <span className="panel-number">01</span>
@@ -1804,8 +1808,6 @@ function App() {
         </aside>
       </section>
 
-      {renderTopList('home')}
-
       <section className="domain-sale" id="buy-domain" aria-labelledby="domain-sale-title">
         <div className="sale-copy">
           <p className="eyebrow">Premium questionable property</p>
@@ -1821,8 +1823,6 @@ function App() {
           <em>serious unserious offers accepted</em>
         </a>
       </section>
-
-      {!currentUser && renderAuthPanel()}
 
       {showPasswordPanel && renderPasswordPanel()}
 
