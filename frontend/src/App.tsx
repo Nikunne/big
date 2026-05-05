@@ -9,6 +9,35 @@ type UserRecord = {
 }
 
 type AuthMode = 'login' | 'signup'
+type AuthResponse = {
+  user: UserRecord
+  token: string
+}
+type PlayResponse = {
+  user: UserRecord
+  game: {
+    cost: number
+    payout: number
+    reels?: string[]
+    face?: string
+    pick?: string
+    guess?: string
+    startCard?: number
+    nextCard?: number
+    roll?: number
+    number?: number
+    ticket?: FlaxSquare[]
+  }
+}
+type FlaxScratchResponse = {
+  user: UserRecord
+  game: {
+    ticket: FlaxSquare[]
+    payout: number
+    paidPrize: number
+    finished: boolean
+  }
+}
 type GameResult = {
   title: string
   detail: string
@@ -46,11 +75,10 @@ type GameSettings = {
 }
 
 const SESSION_STORAGE_KEY = 'bigdick-fyi-current-user'
-const GAME_SETTINGS_STORAGE_KEY = 'bigdick-fyi-game-settings'
+const SESSION_TOKEN_STORAGE_KEY = 'bigdick-fyi-session-token'
 const CLAIM_COOLDOWN_MS = 3000
 const EMAIL_ADDRESS = 'contact@bigdick.fyi'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
-const SLOT_SYMBOLS = ['BD', 'FYI', '1000', '!!!', '777']
 const DEFAULT_GAME_SETTINGS: GameSettings = {
   slotsCost: 100,
   slotsTriplePayout: 1200,
@@ -104,25 +132,16 @@ const normalizeUsername = (username: string) => username.trim().toLowerCase()
 
 const normalizeSettingValue = (value: number) => Math.max(0, Math.floor(Number(value) || 0))
 
-const loadGameSettings = () => {
-  try {
-    const storedSettings = window.localStorage.getItem(GAME_SETTINGS_STORAGE_KEY)
+const getStoredSessionToken = () => window.localStorage.getItem(SESSION_TOKEN_STORAGE_KEY) ?? ''
 
-    if (!storedSettings) {
-      return DEFAULT_GAME_SETTINGS
-    }
+const storeSession = (username: string, token: string) => {
+  window.localStorage.setItem(SESSION_STORAGE_KEY, username)
+  window.localStorage.setItem(SESSION_TOKEN_STORAGE_KEY, token)
+}
 
-    const parsedSettings = JSON.parse(storedSettings) as Partial<GameSettings>
-
-    return Object.fromEntries(
-      Object.entries(DEFAULT_GAME_SETTINGS).map(([key, fallbackValue]) => [
-        key,
-        normalizeSettingValue(parsedSettings[key as keyof GameSettings] ?? fallbackValue),
-      ]),
-    ) as GameSettings
-  } catch {
-    return DEFAULT_GAME_SETTINGS
-  }
+const clearSession = () => {
+  window.localStorage.removeItem(SESSION_STORAGE_KEY)
+  window.localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY)
 }
 
 const getFlaxPrizes = (settings: GameSettings) => [
@@ -196,22 +215,13 @@ const createFlaxTicket = (settings = DEFAULT_GAME_SETTINGS) => {
   }))
 }
 
-const getFlaxPayout = (ticket: FlaxSquare[]) => {
-  const prizeCounts = ticket.reduce<Record<number, number>>((counts, square) => ({
-    ...counts,
-    ...(square.scratched ? { [square.prize]: (counts[square.prize] ?? 0) + 1 } : {}),
-  }), {})
-  const winningPrize = Object.entries(prizeCounts)
-    .find(([, count]) => count >= 3)?.[0]
-
-  return winningPrize ? Number(winningPrize) : 0
-}
-
 const apiRequest = async <ResponseBody,>(path: string, options: RequestInit = {}) => {
+  const token = getStoredSessionToken()
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   })
@@ -228,25 +238,26 @@ function App() {
   const [posterRotation, setPosterRotation] = useState(0)
   const [users, setUsers] = useState<UserRecord[]>([])
   const [isLoadingUsers, setIsLoadingUsers] = useState(true)
-  const [currentUsername, setCurrentUsername] = useState(
-    () => window.localStorage.getItem(SESSION_STORAGE_KEY) ?? '',
-  )
+  const [currentUsername, setCurrentUsername] = useState('')
   const [routePath, setRoutePath] = useState(() => window.location.pathname)
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [authUsername, setAuthUsername] = useState('')
   const [authPassword, setAuthPassword] = useState('')
   const [authMessage, setAuthMessage] = useState('')
+  const [showPasswordPanel, setShowPasswordPanel] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [nextPassword, setNextPassword] = useState('')
+  const [passwordMessage, setPasswordMessage] = useState('')
   const [copyMessage, setCopyMessage] = useState('')
   const [now, setNow] = useState(() => Date.now())
-  const [gameSettings, setGameSettings] = useState<GameSettings>(() => loadGameSettings())
+  const [gameSettings, setGameSettings] = useState<GameSettings>(DEFAULT_GAME_SETTINGS)
   const [showPricePanel, setShowPricePanel] = useState(false)
   const [slotReels, setSlotReels] = useState(['BD', 'FYI', '777'])
   const [coinFace, setCoinFace] = useState('BD')
   const [highLowCard, setHighLowCard] = useState(() => Math.ceil(Math.random() * 13))
   const [diceRoll, setDiceRoll] = useState(6)
   const [luckyNumber, setLuckyNumber] = useState(1)
-  const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket(loadGameSettings()))
-  const [flaxPaidPrize, setFlaxPaidPrize] = useState(0)
+  const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket(DEFAULT_GAME_SETTINGS))
   const [activeHelp, setActiveHelp] = useState<GameName | ''>('')
   const [gameResult, setGameResult] = useState<GameResult>({
     title: 'Games waiting',
@@ -348,12 +359,22 @@ function App() {
   }, [])
 
   useEffect(() => {
+    window.localStorage.removeItem('bigdick-fyi-users')
+    window.localStorage.removeItem('bigdick-fyi-game-settings')
+  }, [])
+
+  useEffect(() => {
     let isMounted = true
 
-    apiRequest<{ users: UserRecord[] }>('/api/users')
-      .then(({ users: loadedUsers }) => {
+    Promise.all([
+      apiRequest<{ users: UserRecord[] }>('/api/users'),
+      apiRequest<{ settings: GameSettings }>('/api/game-settings'),
+    ])
+      .then(([{ users: loadedUsers }, { settings }]) => {
         if (isMounted) {
           setUsers(loadedUsers)
+          setGameSettings(settings)
+          setFlaxTicket(createFlaxTicket(settings))
           setIsLoadingUsers(false)
         }
       })
@@ -361,6 +382,37 @@ function App() {
         if (isMounted) {
           setAuthMessage('Could not load users from the database.')
           setIsLoadingUsers(false)
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let isMounted = true
+
+    if (!getStoredSessionToken()) {
+      clearSession()
+      setCurrentUsername('')
+      return () => {
+        isMounted = false
+      }
+    }
+
+    apiRequest<{ user: UserRecord }>('/api/session')
+      .then(({ user }) => {
+        if (isMounted) {
+          upsertUser(user)
+          setCurrentUsername(user.username)
+          window.localStorage.setItem(SESSION_STORAGE_KEY, user.username)
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          clearSession()
+          setCurrentUsername('')
         }
       })
 
@@ -380,10 +432,6 @@ function App() {
   }, [activeCasinoUser, currentUsername])
 
   useEffect(() => {
-    window.localStorage.setItem(GAME_SETTINGS_STORAGE_KEY, JSON.stringify(gameSettings))
-  }, [gameSettings])
-
-  useEffect(() => {
     const timeouts = autoplayTimeouts.current
 
     return () => {
@@ -397,14 +445,22 @@ function App() {
     const handleKeyboard = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setActiveHelp('')
+        setShowPasswordPanel(false)
       }
 
       const target = event.target
       const isTyping = target instanceof HTMLElement
         && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
 
-      if (!isTyping && event.key.toLowerCase() === 'p' && currentUsernameRef.current === 'niklas') {
+      const isPlainKey = !event.altKey && !event.ctrlKey && !event.metaKey
+
+      if (isPlainKey && !isTyping && event.key.toLowerCase() === 'p' && currentUsernameRef.current === 'niklas') {
         setShowPricePanel((isVisible) => !isVisible)
+      }
+
+      if (isPlainKey && !isTyping && event.key.toLowerCase() === 'c' && currentUsernameRef.current) {
+        setShowPasswordPanel((isVisible) => !isVisible)
+        setPasswordMessage('')
       }
     }
 
@@ -440,17 +496,17 @@ function App() {
 
     try {
       const endpoint = authMode === 'signup' ? '/api/signup' : '/api/login'
-      const { user } = await apiRequest<{ user: UserRecord }>(endpoint, {
+      const { user, token } = await apiRequest<AuthResponse>(endpoint, {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       })
 
       upsertUser(user)
-      setCurrentUsername(username)
-      window.localStorage.setItem(SESSION_STORAGE_KEY, username)
+      setCurrentUsername(user.username)
+      storeSession(user.username, token)
       setAuthPassword('')
       setAuthMessage(authMode === 'signup' ? 'Account created.' : 'Logged in.')
-      goToPath(`/users/${username}`)
+      goToPath(`/users/${user.username}`)
     } catch (error) {
       setAuthMessage(error instanceof Error ? error.message : 'Login failed.')
     }
@@ -458,8 +514,40 @@ function App() {
 
   const handleLogout = () => {
     setCurrentUsername('')
-    window.localStorage.removeItem(SESSION_STORAGE_KEY)
+    setShowPasswordPanel(false)
+    setCurrentPassword('')
+    setNextPassword('')
+    setPasswordMessage('')
+    clearSession()
     goToPath('/')
+  }
+
+  const handlePasswordSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!currentUsername) {
+      return
+    }
+
+    if (nextPassword.length < 4) {
+      setPasswordMessage('Password needs at least 4 characters.')
+      return
+    }
+
+    try {
+      await apiRequest<{ user: UserRecord }>(
+        `/api/users/${encodeURIComponent(currentUsername)}/password`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ currentPassword, nextPassword }),
+        },
+      )
+      setCurrentPassword('')
+      setNextPassword('')
+      setPasswordMessage('Password changed.')
+    } catch (error) {
+      setPasswordMessage(error instanceof Error ? error.message : 'Could not change password.')
+    }
   }
 
   const claimCoins = async () => {
@@ -687,7 +775,6 @@ function App() {
     gameLocks.current[game] = true
     setAnimatingGames((games) => ({ ...games, [game]: true }))
     emitFloatingDelta(game, -cost)
-    updateCoins(casinoUser.username, -cost)
     setGameResult({
       title: 'Bet placed',
       detail: `-${cost} coins. Result lands in 2 seconds.`,
@@ -748,30 +835,37 @@ function App() {
       return
     }
 
-    window.setTimeout(() => {
-      const reels = Array.from(
-        { length: 3 },
-        () => SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
-      )
-      const uniqueSymbols = new Set(reels).size
-      const payout = uniqueSymbols === 1
-        ? gameSettings.slotsTriplePayout
-        : uniqueSymbols === 2
-          ? gameSettings.slotsPairPayout
-          : 0
+    window.setTimeout(async () => {
+      try {
+        const { user, game } = await apiRequest<PlayResponse>(
+          `/api/users/${encodeURIComponent(username)}/play`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ game: 'slots' }),
+          },
+        )
+        const reels = game.reels ?? slotReels
+        const payout = game.payout
 
-      setSlotReels(reels)
-      if (payout > 0) {
-        emitFloatingDelta('slots', payout)
-        updateCoins(username, payout)
+        setSlotReels(reels)
+        upsertUser(user)
+        if (payout > 0) {
+          emitFloatingDelta('slots', payout)
+        }
+        setGameResult({
+          title: payout > 0 ? 'Slots paid' : 'Slots missed',
+          detail: payout > 0
+            ? `Spent ${game.cost}, won ${payout}. Net +${payout - game.cost}.`
+            : `Spent ${game.cost}. The reels kept the coins.`,
+        })
+      } catch (error) {
+        setGameResult({
+          title: 'Slots rejected',
+          detail: error instanceof Error ? error.message : 'Could not play slots.',
+        })
+      } finally {
+        finishGame('slots')
       }
-      setGameResult({
-        title: payout > 0 ? 'Slots paid' : 'Slots missed',
-        detail: payout > 0
-          ? `Spent ${cost}, won ${payout}. Net +${payout - cost}.`
-          : `Spent ${cost}. The reels kept the coins.`,
-      })
-      finishGame('slots')
     }, 2000)
   }
 
@@ -784,21 +878,36 @@ function App() {
       return
     }
 
-    window.setTimeout(() => {
-      const face = Math.random() > 0.5 ? 'BD' : 'FYI'
-      const won = face === pick
-      const payout = won ? gameSettings.flipPayout : 0
+    window.setTimeout(async () => {
+      try {
+        const { user, game } = await apiRequest<PlayResponse>(
+          `/api/users/${encodeURIComponent(username)}/play`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ game: 'flip', pick }),
+          },
+        )
+        const face = game.face ?? coinFace
+        const payout = game.payout
+        const won = payout > 0
 
-      setCoinFace(face)
-      if (payout > 0) {
-        emitFloatingDelta('flip', payout)
-        updateCoins(username, payout)
+        setCoinFace(face)
+        upsertUser(user)
+        if (payout > 0) {
+          emitFloatingDelta('flip', payout)
+        }
+        setGameResult({
+          title: won ? 'Flip hit' : 'Flip missed',
+          detail: `You picked ${pick}. Coin landed ${face}. Net ${won ? `+${payout - game.cost}` : `-${game.cost}`}.`,
+        })
+      } catch (error) {
+        setGameResult({
+          title: 'Flip rejected',
+          detail: error instanceof Error ? error.message : 'Could not flip.',
+        })
+      } finally {
+        finishGame('flip')
       }
-      setGameResult({
-        title: won ? 'Flip hit' : 'Flip missed',
-        detail: `You picked ${pick}. Coin landed ${face}. Net ${won ? `+${payout - cost}` : `-${cost}`}.`,
-      })
-      finishGame('flip')
     }, 2000)
   }
 
@@ -813,21 +922,36 @@ function App() {
 
     const startCard = highLowCard
 
-    window.setTimeout(() => {
-      const nextCard = Math.ceil(Math.random() * 13)
-      const won = guess === 'higher' ? nextCard > startCard : nextCard < startCard
-      const payout = won ? gameSettings.highLowPayout : 0
+    window.setTimeout(async () => {
+      try {
+        const { user, game } = await apiRequest<PlayResponse>(
+          `/api/users/${encodeURIComponent(username)}/play`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ game: 'highLow', guess, startCard }),
+          },
+        )
+        const nextCard = game.nextCard ?? startCard
+        const payout = game.payout
+        const won = payout > 0
 
-      if (payout > 0) {
-        emitFloatingDelta('highLow', payout)
-        updateCoins(username, payout)
+        upsertUser(user)
+        if (payout > 0) {
+          emitFloatingDelta('highLow', payout)
+        }
+        setGameResult({
+          title: won ? 'Good read' : nextCard === startCard ? 'Push? No mercy' : 'Bad read',
+          detail: `${startCard} to ${nextCard}. Spent ${game.cost}, ${won ? `won ${payout}` : 'won 0'}.`,
+        })
+        setHighLowCard(nextCard)
+      } catch (error) {
+        setGameResult({
+          title: 'High low rejected',
+          detail: error instanceof Error ? error.message : 'Could not play high low.',
+        })
+      } finally {
+        finishGame('highLow')
       }
-      setGameResult({
-        title: won ? 'Good read' : nextCard === startCard ? 'Push? No mercy' : 'Bad read',
-        detail: `${startCard} to ${nextCard}. Spent ${cost}, ${won ? `won ${payout}` : 'won 0'}.`,
-      })
-      setHighLowCard(nextCard)
-      finishGame('highLow')
     }, 2000)
   }
 
@@ -839,24 +963,35 @@ function App() {
       return
     }
 
-    window.setTimeout(() => {
-      const roll = Math.ceil(Math.random() * 6)
-      const payout = roll === 6
-        ? gameSettings.diceSixPayout
-        : roll >= 4
-          ? gameSettings.diceHighPayout
-          : 0
+    window.setTimeout(async () => {
+      try {
+        const { user, game } = await apiRequest<PlayResponse>(
+          `/api/users/${encodeURIComponent(username)}/play`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ game: 'dice' }),
+          },
+        )
+        const roll = game.roll ?? diceRoll
+        const payout = game.payout
 
-      setDiceRoll(roll)
-      if (payout > 0) {
-        emitFloatingDelta('dice', payout)
-        updateCoins(username, payout)
+        setDiceRoll(roll)
+        upsertUser(user)
+        if (payout > 0) {
+          emitFloatingDelta('dice', payout)
+        }
+        setGameResult({
+          title: payout > 0 ? 'Dice paid' : 'Dice missed',
+          detail: `Rolled ${roll}. Spent ${game.cost}, ${payout > 0 ? `won ${payout}` : 'won 0'}.`,
+        })
+      } catch (error) {
+        setGameResult({
+          title: 'Dice rejected',
+          detail: error instanceof Error ? error.message : 'Could not roll dice.',
+        })
+      } finally {
+        finishGame('dice')
       }
-      setGameResult({
-        title: payout > 0 ? 'Dice paid' : 'Dice missed',
-        detail: `Rolled ${roll}. Spent ${cost}, ${payout > 0 ? `won ${payout}` : 'won 0'}.`,
-      })
-      finishGame('dice')
     }, 2000)
   }
 
@@ -868,25 +1003,40 @@ function App() {
       return
     }
 
-    window.setTimeout(() => {
-      const number = Math.ceil(Math.random() * 3)
-      const won = number === pick
-      const payout = won ? gameSettings.luckyPayout : 0
+    window.setTimeout(async () => {
+      try {
+        const { user, game } = await apiRequest<PlayResponse>(
+          `/api/users/${encodeURIComponent(username)}/play`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ game: 'lucky', pick }),
+          },
+        )
+        const number = game.number ?? luckyNumber
+        const payout = game.payout
+        const won = payout > 0
 
-      setLuckyNumber(number)
-      if (payout > 0) {
-        emitFloatingDelta('lucky', payout)
-        updateCoins(username, payout)
+        setLuckyNumber(number)
+        upsertUser(user)
+        if (payout > 0) {
+          emitFloatingDelta('lucky', payout)
+        }
+        setGameResult({
+          title: won ? 'Lucky hit' : 'Lucky missed',
+          detail: `You picked ${pick}. Machine picked ${number}. ${won ? `Won ${payout}` : 'Won 0'}.`,
+        })
+      } catch (error) {
+        setGameResult({
+          title: 'Lucky rejected',
+          detail: error instanceof Error ? error.message : 'Could not play lucky pick.',
+        })
+      } finally {
+        finishGame('lucky')
       }
-      setGameResult({
-        title: won ? 'Lucky hit' : 'Lucky missed',
-        detail: `You picked ${pick}. Machine picked ${number}. ${won ? `Won ${payout}` : 'Won 0'}.`,
-      })
-      finishGame('lucky')
     }, 2000)
   }
 
-  const buyFlaxTicket = () => {
+  const buyFlaxTicket = async () => {
     const cost = gameSettings.flaxCost
     const username = beginGame('flax', cost)
 
@@ -894,64 +1044,93 @@ function App() {
       return
     }
 
-    setFlaxTicket(createFlaxTicket(gameSettings))
-    setFlaxPaidPrize(0)
-    setGameResult({
-      title: 'FLAX-lodd ready',
-      detail: `Spent ${cost}. Scratch all 9 squares to check the prize.`,
-    })
+    try {
+      const { user, game } = await apiRequest<PlayResponse>(
+        `/api/users/${encodeURIComponent(username)}/play`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ game: 'flax' }),
+        },
+      )
+
+      upsertUser(user)
+      setFlaxTicket(game.ticket ?? createFlaxTicket(gameSettings))
+      setGameResult({
+        title: 'FLAX-lodd ready',
+        detail: `Spent ${game.cost}. Scratch all 9 squares to check the prize.`,
+      })
+    } catch (error) {
+      setGameResult({
+        title: 'FLAX rejected',
+        detail: error instanceof Error ? error.message : 'Could not buy FLAX-lodd.',
+      })
+      finishGame('flax')
+    }
   }
 
-  const scratchFlaxSquare = (squareId: number) => {
+  const scratchFlaxSquare = async (squareId: number) => {
     if (!animatingGames.flax || !activeCasinoUser || activeCasinoUser.username !== currentUsername) {
       return
     }
 
-    setFlaxTicket((ticket) => {
-      const nextTicket = ticket.map((square) => (
-        square.id === squareId ? { ...square, scratched: true } : square
-      ))
-      const payout = flaxPaidPrize === 0 ? getFlaxPayout(nextTicket) : 0
-      const isFinished = nextTicket.every((square) => square.scratched)
+    try {
+      const { user, game } = await apiRequest<FlaxScratchResponse>(
+        `/api/users/${encodeURIComponent(activeCasinoUser.username)}/flax-scratch`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ squareId }),
+        },
+      )
+      const paidPrize = game.paidPrize || game.payout
 
-      if (payout > 0) {
-        setFlaxPaidPrize(payout)
-        emitFloatingDelta('flax', payout)
-        updateCoins(activeCasinoUser.username, payout)
+      upsertUser(user)
+      setFlaxTicket(game.ticket)
+
+      if (game.payout > 0) {
+        emitFloatingDelta('flax', game.payout)
         setGameResult({
           title: 'FLAX paid',
-          detail: `Three equal ${payout} prizes. Won ${payout}. Scratch the rest of the ticket.`,
+          detail: `Three equal ${game.payout} prizes. Won ${game.payout}. Scratch the rest of the ticket.`,
         })
       }
 
-      if (isFinished) {
+      if (game.finished) {
         setGameResult({
-          title: flaxPaidPrize > 0 || payout > 0 ? 'FLAX complete' : 'No win',
-          detail: flaxPaidPrize > 0 || payout > 0
-            ? `Ticket finished. Paid ${flaxPaidPrize || payout} coins.`
+          title: paidPrize > 0 ? 'FLAX complete' : 'No win',
+          detail: paidPrize > 0
+            ? `Ticket finished. Paid ${paidPrize} coins.`
             : 'No three equal prize numbers on this ticket. No win.',
         })
         finishGame('flax')
       }
-
-      return nextTicket
-    })
+    } catch (error) {
+      setGameResult({
+        title: 'Scratch rejected',
+        detail: error instanceof Error ? error.message : 'Could not scratch FLAX-lodd.',
+      })
+    }
   }
 
-  const scratchAllFlaxSquares = (force = false) => {
+  const scratchAllFlaxSquares = async (force = false) => {
     if ((!force && !animatingGames.flax) || !activeCasinoUser || activeCasinoUser.username !== currentUsername) {
       return
     }
 
-    setFlaxTicket((ticket) => {
-      const nextTicket = ticket.map((square) => ({ ...square, scratched: true }))
-      const payout = flaxPaidPrize === 0 ? getFlaxPayout(nextTicket) : 0
-      const paidPrize = flaxPaidPrize || payout
+    try {
+      const { user, game } = await apiRequest<FlaxScratchResponse>(
+        `/api/users/${encodeURIComponent(activeCasinoUser.username)}/flax-scratch`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ all: true }),
+        },
+      )
+      const paidPrize = game.paidPrize || game.payout
 
-      if (payout > 0) {
-        setFlaxPaidPrize(payout)
-        emitFloatingDelta('flax', payout)
-        updateCoins(activeCasinoUser.username, payout)
+      upsertUser(user)
+      setFlaxTicket(game.ticket)
+
+      if (game.payout > 0) {
+        emitFloatingDelta('flax', game.payout)
       }
 
       setGameResult({
@@ -961,9 +1140,12 @@ function App() {
           : 'No three equal prize numbers on this ticket. No win.',
       })
       finishGame('flax')
-
-      return nextTicket
-    })
+    } catch (error) {
+      setGameResult({
+        title: 'Scratch rejected',
+        detail: error instanceof Error ? error.message : 'Could not scratch FLAX-lodd.',
+      })
+    }
   }
 
   const copyEmail = async () => {
@@ -999,16 +1181,42 @@ function App() {
     </section>
   )
 
-  const updateGameSetting = (setting: keyof GameSettings, value: string) => {
+  const updateGameSetting = async (setting: keyof GameSettings, value: string) => {
+    const normalizedValue = normalizeSettingValue(Number(value))
+
     setGameSettings((settings) => ({
       ...settings,
-      [setting]: normalizeSettingValue(Number(value)),
+      [setting]: normalizedValue,
     }))
+
+    try {
+      const { settings } = await apiRequest<{ settings: GameSettings }>('/api/game-settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ [setting]: normalizedValue }),
+      })
+      setGameSettings(settings)
+    } catch (error) {
+      setGameResult({
+        title: 'Settings rejected',
+        detail: error instanceof Error ? error.message : 'Could not save game settings.',
+      })
+    }
   }
 
-  const resetGameSettings = () => {
-    setGameSettings(DEFAULT_GAME_SETTINGS)
-    setFlaxTicket(createFlaxTicket(DEFAULT_GAME_SETTINGS))
+  const resetGameSettings = async () => {
+    try {
+      const { settings } = await apiRequest<{ settings: GameSettings }>('/api/game-settings', {
+        method: 'PATCH',
+        body: JSON.stringify(DEFAULT_GAME_SETTINGS),
+      })
+      setGameSettings(settings)
+      setFlaxTicket(createFlaxTicket(settings))
+    } catch (error) {
+      setGameResult({
+        title: 'Settings rejected',
+        detail: error instanceof Error ? error.message : 'Could not reset game settings.',
+      })
+    }
   }
 
   const renderPricePanel = () => (
@@ -1097,6 +1305,55 @@ function App() {
         {authMessage && <p className="form-message">{authMessage}</p>}
       </form>
     </section>
+  )
+
+  const renderPasswordPanel = () => (
+    <div
+      className="password-overlay"
+      role="presentation"
+      onClick={() => setShowPasswordPanel(false)}
+    >
+      <form
+        className="password-dialog"
+        aria-labelledby="password-title"
+        onClick={(event) => event.stopPropagation()}
+        onSubmit={handlePasswordSubmit}
+      >
+        <p className="eyebrow">Account</p>
+        <h2 id="password-title">New password</h2>
+        <label>
+          Current password
+          <input
+            autoComplete="current-password"
+            type="password"
+            value={currentPassword}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+          />
+        </label>
+        <label>
+          New password
+          <input
+            autoComplete="new-password"
+            type="password"
+            value={nextPassword}
+            onChange={(event) => setNextPassword(event.target.value)}
+          />
+        </label>
+        <div className="password-actions">
+          <button className="game-button" type="submit">
+            Save
+          </button>
+          <button
+            className="game-button alt"
+            type="button"
+            onClick={() => setShowPasswordPanel(false)}
+          >
+            Close
+          </button>
+        </div>
+        {passwordMessage && <p className="form-message">{passwordMessage}</p>}
+      </form>
+    </div>
   )
 
   const renderCasinoPage = () => {
@@ -1371,6 +1628,8 @@ function App() {
           </div>
         )}
 
+        {showPasswordPanel && renderPasswordPanel()}
+
         {canAdminUsers && (
           <section className="admin-panel" aria-labelledby="admin-title">
             <div className="admin-header">
@@ -1564,6 +1823,8 @@ function App() {
       </section>
 
       {!currentUser && renderAuthPanel()}
+
+      {showPasswordPanel && renderPasswordPanel()}
 
       <section className="contact-zone" id="contact">
         <div>

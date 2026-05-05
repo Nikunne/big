@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
@@ -12,6 +12,30 @@ mkdirSync(dataDir, { recursive: true })
 const db = new DatabaseSync(join(dataDir, 'users.sqlite'))
 const port = Number(process.env.PORT ?? 3001)
 const claimCooldownMs = 3000
+const adminUsername = 'niklas'
+const sessions = new Map()
+const activeFlaxTickets = new Map()
+const slotSymbols = ['BD', 'FYI', '1000', '!!!', '777']
+const defaultGameSettings = {
+  slotsCost: 100,
+  slotsTriplePayout: 1200,
+  slotsPairPayout: 250,
+  flipCost: 100,
+  flipPayout: 220,
+  highLowCost: 150,
+  highLowPayout: 360,
+  diceCost: 200,
+  diceSixPayout: 900,
+  diceHighPayout: 320,
+  luckyCost: 250,
+  luckyPayout: 650,
+  flaxCost: 1000,
+  flaxPrizeSmall: 1000,
+  flaxPrizeMedium: 2500,
+  flaxPrizeLarge: 5000,
+  flaxPrizeHuge: 10000,
+  flaxPrizeJackpot: 100000,
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -19,6 +43,11 @@ db.exec(`
     password_hash TEXT NOT NULL,
     coins INTEGER NOT NULL DEFAULT 0,
     last_claim_at INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS game_settings (
+    setting_key TEXT PRIMARY KEY,
+    setting_value INTEGER NOT NULL
   )
 `)
 
@@ -27,6 +56,20 @@ const hashPassword = (password) => (
 )
 
 const normalizeUsername = (username) => String(username ?? '').trim().toLowerCase()
+const normalizeSettingValue = (value) => Math.max(0, Math.floor(Number(value) || 0))
+
+const createSession = (username) => {
+  const token = randomBytes(32).toString('hex')
+  sessions.set(token, username)
+  return token
+}
+
+const getSessionUsername = (request) => {
+  const authorization = String(request.headers.authorization ?? '')
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : ''
+
+  return sessions.get(token) ?? ''
+}
 
 const publicUser = (row) => ({
   username: row.username,
@@ -46,6 +89,9 @@ const listUsers = db.prepare(
 const createUser = db.prepare(
   'INSERT INTO users (username, password_hash, coins, last_claim_at) VALUES (?, ?, 0, 0)',
 )
+const setPassword = db.prepare(
+  'UPDATE users SET password_hash = ? WHERE username = ?',
+)
 const setCoins = db.prepare(
   'UPDATE users SET coins = max(0, ?) WHERE username = ?',
 )
@@ -55,10 +101,134 @@ const adjustCoins = db.prepare(
 const setClaim = db.prepare(
   'UPDATE users SET coins = coins + 1000, last_claim_at = ? WHERE username = ?',
 )
+const listGameSettings = db.prepare(
+  'SELECT setting_key, setting_value FROM game_settings',
+)
+const createGameSetting = db.prepare(
+  'INSERT OR IGNORE INTO game_settings (setting_key, setting_value) VALUES (?, ?)',
+)
+const setGameSetting = db.prepare(
+  'INSERT INTO game_settings (setting_key, setting_value) VALUES (?, ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value',
+)
+
+for (const [setting, value] of Object.entries(defaultGameSettings)) {
+  createGameSetting.run(setting, value)
+}
+
+const getGameSettings = () => ({
+  ...defaultGameSettings,
+  ...Object.fromEntries(
+    listGameSettings.all().map((row) => [row.setting_key, normalizeSettingValue(row.setting_value)]),
+  ),
+})
+
+const pickRandomCoinFace = () => (Math.random() > 0.5 ? 'BD' : 'FYI')
+const pickRandomLuckyNumber = () => Math.ceil(Math.random() * 3)
+const pickRandomHighLowGuess = () => (Math.random() > 0.5 ? 'higher' : 'lower')
+
+const shuffle = (items) => {
+  const shuffledItems = [...items]
+
+  for (let index = shuffledItems.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1))
+    const item = shuffledItems[index]
+    shuffledItems[index] = shuffledItems[randomIndex]
+    shuffledItems[randomIndex] = item
+  }
+
+  return shuffledItems
+}
+
+const getFlaxPrizes = (settings) => [
+  { amount: settings.flaxPrizeSmall, weight: 40 },
+  { amount: settings.flaxPrizeMedium, weight: 25 },
+  { amount: settings.flaxPrizeLarge, weight: 18 },
+  { amount: settings.flaxPrizeHuge, weight: 12 },
+  { amount: settings.flaxPrizeJackpot, weight: 5 },
+]
+
+const pickWeightedFlaxPrize = (availablePrizes) => {
+  const totalWeight = availablePrizes.reduce((total, prize) => total + prize.weight, 0)
+  let pick = Math.random() * totalWeight
+
+  for (const prize of availablePrizes) {
+    pick -= prize.weight
+
+    if (pick <= 0) {
+      return prize.amount
+    }
+  }
+
+  return availablePrizes[availablePrizes.length - 1].amount
+}
+
+const createFlaxTicket = (settings) => {
+  const flaxPrizes = getFlaxPrizes(settings)
+  const isWinningTicket = Math.random() < 0.35
+  const winningPrize = pickWeightedFlaxPrize(flaxPrizes)
+  const prizes = isWinningTicket ? [winningPrize, winningPrize, winningPrize] : []
+  const prizeCounts = prizes.reduce((counts, prize) => ({
+    ...counts,
+    [prize]: (counts[prize] ?? 0) + 1,
+  }), {})
+
+  while (prizes.length < 9) {
+    const availablePrizes = flaxPrizes.filter((prize) => {
+      const maxCopies = prize.amount === winningPrize && isWinningTicket ? 3 : 2
+      return (prizeCounts[prize.amount] ?? 0) < maxCopies
+    })
+    const prize = pickWeightedFlaxPrize(availablePrizes.length > 0 ? availablePrizes : flaxPrizes)
+    prizes.push(prize)
+    prizeCounts[prize] = (prizeCounts[prize] ?? 0) + 1
+  }
+
+  return shuffle(prizes).map((prize, id) => ({
+    id,
+    prize,
+    scratched: false,
+  }))
+}
+
+const getFlaxPayout = (ticket) => {
+  const prizeCounts = ticket.reduce((counts, square) => ({
+    ...counts,
+    ...(square.scratched ? { [square.prize]: (counts[square.prize] ?? 0) + 1 } : {}),
+  }), {})
+  const winningPrize = Object.entries(prizeCounts)
+    .find(([, count]) => count >= 3)?.[0]
+
+  return winningPrize ? Number(winningPrize) : 0
+}
+
+const publicFlaxTicket = (ticket) => ticket.map((square) => ({
+  id: square.id,
+  prize: square.scratched ? square.prize : 0,
+  scratched: square.scratched,
+}))
+
+const runCoinGame = (username, cost, play) => {
+  const user = getUser.get(username)
+
+  if (user.coins < cost) {
+    return { error: `This game costs ${cost.toLocaleString()} coins.` }
+  }
+
+  adjustCoins.run(-cost, username)
+  const result = play()
+
+  if (result.payout > 0) {
+    adjustCoins.run(result.payout, username)
+  }
+
+  return {
+    game: { cost, ...result },
+    user: publicUser(getUser.get(username)),
+  }
+}
 
 const sendJson = (response, status, body) => {
   response.writeHead(status, {
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
     'Access-Control-Allow-Origin': process.env.CORS_ORIGIN ?? '*',
     'Content-Type': 'application/json',
@@ -94,6 +264,42 @@ createServer(async (request, response) => {
       return
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/session') {
+      const username = getSessionUsername(request)
+      const user = username ? getUser.get(username) : null
+
+      if (!user) {
+        sendJson(response, 401, { error: 'Session expired.' })
+        return
+      }
+
+      sendJson(response, 200, { user: publicUser(user) })
+      return
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/game-settings') {
+      sendJson(response, 200, { settings: getGameSettings() })
+      return
+    }
+
+    if (request.method === 'PATCH' && url.pathname === '/api/game-settings') {
+      if (getSessionUsername(request) !== adminUsername) {
+        sendJson(response, 403, { error: 'Admin session required.' })
+        return
+      }
+
+      const body = await readJson(request)
+
+      for (const setting of Object.keys(defaultGameSettings)) {
+        if (Object.hasOwn(body, setting)) {
+          setGameSetting.run(setting, normalizeSettingValue(body[setting]))
+        }
+      }
+
+      sendJson(response, 200, { settings: getGameSettings() })
+      return
+    }
+
     if (request.method === 'POST' && url.pathname === '/api/signup') {
       const body = await readJson(request)
       const username = normalizeUsername(body.username)
@@ -115,7 +321,7 @@ createServer(async (request, response) => {
       }
 
       createUser.run(username, hashPassword(password))
-      sendJson(response, 201, { user: publicUser(getUser.get(username)) })
+      sendJson(response, 201, { user: publicUser(getUser.get(username)), token: createSession(username) })
       return
     }
 
@@ -130,7 +336,7 @@ createServer(async (request, response) => {
         return
       }
 
-      sendJson(response, 200, { user: publicUser(user) })
+      sendJson(response, 200, { user: publicUser(user), token: createSession(username) })
       return
     }
 
@@ -146,6 +352,11 @@ createServer(async (request, response) => {
       }
 
       if (request.method === 'PATCH' && action === 'coins') {
+        if (getSessionUsername(request) !== adminUsername) {
+          sendJson(response, 403, { error: 'Admin session required.' })
+          return
+        }
+
         const body = await readJson(request)
         const coins = Math.max(0, Math.floor(Number(body.coins) || 0))
         setCoins.run(coins, username)
@@ -154,6 +365,11 @@ createServer(async (request, response) => {
       }
 
       if (request.method === 'POST' && action === 'adjust-coins') {
+        if (getSessionUsername(request) !== adminUsername) {
+          sendJson(response, 403, { error: 'Admin session required.' })
+          return
+        }
+
         const body = await readJson(request)
         const delta = Math.floor(Number(body.delta) || 0)
         adjustCoins.run(delta, username)
@@ -161,7 +377,161 @@ createServer(async (request, response) => {
         return
       }
 
+      if (request.method === 'POST' && action === 'play') {
+        if (getSessionUsername(request) !== username) {
+          sendJson(response, 403, { error: 'You can only play from your own account.' })
+          return
+        }
+
+        const body = await readJson(request)
+        const settings = getGameSettings()
+        const game = String(body.game ?? '')
+        let result
+
+        if (game === 'slots') {
+          result = runCoinGame(username, settings.slotsCost, () => {
+            const reels = Array.from(
+              { length: 3 },
+              () => slotSymbols[Math.floor(Math.random() * slotSymbols.length)],
+            )
+            const uniqueSymbols = new Set(reels).size
+            const payout = uniqueSymbols === 1
+              ? settings.slotsTriplePayout
+              : uniqueSymbols === 2
+                ? settings.slotsPairPayout
+                : 0
+
+            return { payout, reels }
+          })
+        } else if (game === 'flip') {
+          result = runCoinGame(username, settings.flipCost, () => {
+            const pick = String(body.pick ?? '')
+            const face = pickRandomCoinFace()
+            return { payout: face === pick ? settings.flipPayout : 0, face, pick }
+          })
+        } else if (game === 'highLow') {
+          result = runCoinGame(username, settings.highLowCost, () => {
+            const guess = String(body.guess ?? pickRandomHighLowGuess())
+            const startCard = Math.max(1, Math.min(13, Math.floor(Number(body.startCard) || 1)))
+            const nextCard = Math.ceil(Math.random() * 13)
+            const won = guess === 'higher' ? nextCard > startCard : nextCard < startCard
+
+            return {
+              payout: won ? settings.highLowPayout : 0,
+              guess,
+              startCard,
+              nextCard,
+            }
+          })
+        } else if (game === 'dice') {
+          result = runCoinGame(username, settings.diceCost, () => {
+            const roll = Math.ceil(Math.random() * 6)
+            const payout = roll === 6
+              ? settings.diceSixPayout
+              : roll >= 4
+                ? settings.diceHighPayout
+                : 0
+
+            return { payout, roll }
+          })
+        } else if (game === 'lucky') {
+          result = runCoinGame(username, settings.luckyCost, () => {
+            const pick = Math.max(1, Math.min(3, Math.floor(Number(body.pick) || pickRandomLuckyNumber())))
+            const number = pickRandomLuckyNumber()
+
+            return { payout: number === pick ? settings.luckyPayout : 0, number, pick }
+          })
+        } else if (game === 'flax') {
+          const user = getUser.get(username)
+
+          if (user.coins < settings.flaxCost) {
+            sendJson(response, 400, { error: `This game costs ${settings.flaxCost.toLocaleString()} coins.` })
+            return
+          }
+
+          adjustCoins.run(-settings.flaxCost, username)
+          const ticket = createFlaxTicket(settings)
+          activeFlaxTickets.set(username, { ticket, paidPrize: 0 })
+          sendJson(response, 200, {
+            user: publicUser(getUser.get(username)),
+            game: {
+              cost: settings.flaxCost,
+              payout: 0,
+              ticket: publicFlaxTicket(ticket),
+            },
+          })
+          return
+        } else {
+          sendJson(response, 400, { error: 'Unknown game.' })
+          return
+        }
+
+        if (result.error) {
+          sendJson(response, 400, { error: result.error })
+          return
+        }
+
+        sendJson(response, 200, result)
+        return
+      }
+
+      if (request.method === 'POST' && action === 'flax-scratch') {
+        if (getSessionUsername(request) !== username) {
+          sendJson(response, 403, { error: 'You can only scratch your own ticket.' })
+          return
+        }
+
+        const activeTicket = activeFlaxTickets.get(username)
+
+        if (!activeTicket) {
+          sendJson(response, 400, { error: 'No active FLAX ticket.' })
+          return
+        }
+
+        const body = await readJson(request)
+
+        if (body.all) {
+          activeTicket.ticket = activeTicket.ticket.map((square) => ({ ...square, scratched: true }))
+        } else {
+          const squareId = Math.floor(Number(body.squareId))
+          activeTicket.ticket = activeTicket.ticket.map((square) => (
+            square.id === squareId ? { ...square, scratched: true } : square
+          ))
+        }
+
+        const payout = activeTicket.paidPrize === 0 ? getFlaxPayout(activeTicket.ticket) : 0
+
+        if (payout > 0) {
+          activeTicket.paidPrize = payout
+          adjustCoins.run(payout, username)
+        }
+
+        const isFinished = activeTicket.ticket.every((square) => square.scratched)
+
+        if (isFinished) {
+          activeFlaxTickets.delete(username)
+        } else {
+          activeFlaxTickets.set(username, activeTicket)
+        }
+
+        sendJson(response, 200, {
+          user: publicUser(getUser.get(username)),
+          game: {
+            ticket: publicFlaxTicket(activeTicket.ticket),
+            payout,
+            paidPrize: activeTicket.paidPrize,
+            finished: isFinished,
+          },
+        })
+        return
+      }
+
       if (request.method === 'POST' && action === 'claim') {
+        if (getSessionUsername(request) !== username) {
+          sendJson(response, 403, { error: 'You can only claim coins for your own account.' })
+          return
+        }
+
         const user = getUser.get(username)
         const now = Date.now()
 
@@ -174,6 +544,32 @@ createServer(async (request, response) => {
         }
 
         setClaim.run(now, username)
+        sendJson(response, 200, { user: publicUser(getUser.get(username)) })
+        return
+      }
+
+      if (request.method === 'POST' && action === 'password') {
+        if (getSessionUsername(request) !== username) {
+          sendJson(response, 403, { error: 'You can only change your own password.' })
+          return
+        }
+
+        const body = await readJson(request)
+        const currentPassword = String(body.currentPassword ?? '')
+        const nextPassword = String(body.nextPassword ?? '')
+        const user = getUserWithPassword.get(username)
+
+        if (user.password_hash !== hashPassword(currentPassword)) {
+          sendJson(response, 401, { error: 'Current password is wrong.' })
+          return
+        }
+
+        if (nextPassword.length < 4) {
+          sendJson(response, 400, { error: 'Password needs at least 4 characters.' })
+          return
+        }
+
+        setPassword.run(hashPassword(nextPassword), username)
         sendJson(response, 200, { user: publicUser(getUser.get(username)) })
         return
       }
