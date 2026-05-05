@@ -24,48 +24,114 @@ type FlaxSquare = {
   prize: number
   scratched: boolean
 }
+type GameSettings = {
+  slotsCost: number
+  slotsTriplePayout: number
+  slotsPairPayout: number
+  flipCost: number
+  flipPayout: number
+  highLowCost: number
+  highLowPayout: number
+  diceCost: number
+  diceSixPayout: number
+  diceHighPayout: number
+  luckyCost: number
+  luckyPayout: number
+  flaxCost: number
+  flaxPrizeSmall: number
+  flaxPrizeMedium: number
+  flaxPrizeLarge: number
+  flaxPrizeHuge: number
+  flaxPrizeJackpot: number
+}
 
 const SESSION_STORAGE_KEY = 'bigdick-fyi-current-user'
+const GAME_SETTINGS_STORAGE_KEY = 'bigdick-fyi-game-settings'
 const CLAIM_COOLDOWN_MS = 3000
 const EMAIL_ADDRESS = 'contact@bigdick.fyi'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
-const FLAX_COST = 1000
 const SLOT_SYMBOLS = ['BD', 'FYI', '1000', '!!!', '777']
-const FLAX_PRIZES = [
-  { amount: 1000, weight: 40 },
-  { amount: 2500, weight: 25 },
-  { amount: 5000, weight: 18 },
-  { amount: 10000, weight: 12 },
-  { amount: 100000, weight: 5 },
-]
-const GAME_HELP: Record<GameName, { title: string; description: string }> = {
-  slots: {
-    title: 'Slots',
-    description: 'Costs 100 coins. Three matching reels pay 1200. Two matching reels pay 250.',
-  },
-  flip: {
-    title: 'Coin flip',
-    description: 'Costs 100 coins. Pick BD or FYI. If the coin lands on your pick, you get 220.',
-  },
-  highLow: {
-    title: 'High low',
-    description: 'Costs 150 coins. Guess if the next card will be higher or lower. Correct pays 360.',
-  },
-  dice: {
-    title: 'Dice roll',
-    description: 'Costs 200 coins. Roll a six to get 900. Roll four or five to get 320.',
-  },
-  lucky: {
-    title: 'Lucky pick',
-    description: 'Costs 250 coins. Pick 1, 2, or 3. If the machine picks the same number, you get 650.',
-  },
-  flax: {
-    title: 'FLAX-lodd',
-    description: `Costs ${FLAX_COST} coins. Scratch all 9 squares. Three equal prize numbers pays that prize.`,
-  },
+const DEFAULT_GAME_SETTINGS: GameSettings = {
+  slotsCost: 100,
+  slotsTriplePayout: 1200,
+  slotsPairPayout: 250,
+  flipCost: 100,
+  flipPayout: 220,
+  highLowCost: 150,
+  highLowPayout: 360,
+  diceCost: 200,
+  diceSixPayout: 900,
+  diceHighPayout: 320,
+  luckyCost: 250,
+  luckyPayout: 650,
+  flaxCost: 1000,
+  flaxPrizeSmall: 1000,
+  flaxPrizeMedium: 2500,
+  flaxPrizeLarge: 5000,
+  flaxPrizeHuge: 10000,
+  flaxPrizeJackpot: 100000,
+}
+const GAME_TITLES: Record<GameName, string> = {
+  slots: 'Slots',
+  flip: 'Coin flip',
+  highLow: 'High low',
+  dice: 'Dice roll',
+  lucky: 'Lucky pick',
+  flax: 'FLAX-lodd',
+}
+const GAME_SETTING_LABELS: Record<keyof GameSettings, string> = {
+  slotsCost: 'Slots cost',
+  slotsTriplePayout: 'Slots 3-match payout',
+  slotsPairPayout: 'Slots 2-match payout',
+  flipCost: 'Coin flip cost',
+  flipPayout: 'Coin flip payout',
+  highLowCost: 'High low cost',
+  highLowPayout: 'High low payout',
+  diceCost: 'Dice roll cost',
+  diceSixPayout: 'Dice 6 payout',
+  diceHighPayout: 'Dice 4-5 payout',
+  luckyCost: 'Lucky pick cost',
+  luckyPayout: 'Lucky pick payout',
+  flaxCost: 'FLAX-lodd cost',
+  flaxPrizeSmall: 'FLAX prize small',
+  flaxPrizeMedium: 'FLAX prize medium',
+  flaxPrizeLarge: 'FLAX prize large',
+  flaxPrizeHuge: 'FLAX prize huge',
+  flaxPrizeJackpot: 'FLAX prize jackpot',
 }
 
 const normalizeUsername = (username: string) => username.trim().toLowerCase()
+
+const normalizeSettingValue = (value: number) => Math.max(0, Math.floor(Number(value) || 0))
+
+const loadGameSettings = () => {
+  try {
+    const storedSettings = window.localStorage.getItem(GAME_SETTINGS_STORAGE_KEY)
+
+    if (!storedSettings) {
+      return DEFAULT_GAME_SETTINGS
+    }
+
+    const parsedSettings = JSON.parse(storedSettings) as Partial<GameSettings>
+
+    return Object.fromEntries(
+      Object.entries(DEFAULT_GAME_SETTINGS).map(([key, fallbackValue]) => [
+        key,
+        normalizeSettingValue(parsedSettings[key as keyof GameSettings] ?? fallbackValue),
+      ]),
+    ) as GameSettings
+  } catch {
+    return DEFAULT_GAME_SETTINGS
+  }
+}
+
+const getFlaxPrizes = (settings: GameSettings) => [
+  { amount: settings.flaxPrizeSmall, weight: 40 },
+  { amount: settings.flaxPrizeMedium, weight: 25 },
+  { amount: settings.flaxPrizeLarge, weight: 18 },
+  { amount: settings.flaxPrizeHuge, weight: 12 },
+  { amount: settings.flaxPrizeJackpot, weight: 5 },
+]
 
 const pickRandomCoinFace = () => (Math.random() > 0.5 ? 'BD' : 'FYI')
 
@@ -88,7 +154,7 @@ const shuffle = <Item,>(items: Item[]) => {
   return shuffledItems
 }
 
-const pickWeightedFlaxPrize = (availablePrizes = FLAX_PRIZES) => {
+const pickWeightedFlaxPrize = (availablePrizes: { amount: number; weight: number }[]) => {
   const totalWeight = availablePrizes.reduce((total, prize) => total + prize.weight, 0)
   let pick = Math.random() * totalWeight
 
@@ -103,9 +169,10 @@ const pickWeightedFlaxPrize = (availablePrizes = FLAX_PRIZES) => {
   return availablePrizes[availablePrizes.length - 1].amount
 }
 
-const createFlaxTicket = () => {
+const createFlaxTicket = (settings = DEFAULT_GAME_SETTINGS) => {
+  const flaxPrizes = getFlaxPrizes(settings)
   const isWinningTicket = Math.random() < 0.35
-  const winningPrize = pickWeightedFlaxPrize()
+  const winningPrize = pickWeightedFlaxPrize(flaxPrizes)
   const prizes = isWinningTicket ? [winningPrize, winningPrize, winningPrize] : []
   const prizeCounts = prizes.reduce<Record<number, number>>((counts, prize) => ({
     ...counts,
@@ -113,11 +180,11 @@ const createFlaxTicket = () => {
   }), {})
 
   while (prizes.length < 9) {
-    const availablePrizes = FLAX_PRIZES.filter((prize) => {
+    const availablePrizes = flaxPrizes.filter((prize) => {
       const maxCopies = prize.amount === winningPrize && isWinningTicket ? 3 : 2
       return (prizeCounts[prize.amount] ?? 0) < maxCopies
     })
-    const prize = pickWeightedFlaxPrize(availablePrizes)
+    const prize = pickWeightedFlaxPrize(availablePrizes.length > 0 ? availablePrizes : flaxPrizes)
     prizes.push(prize)
     prizeCounts[prize] = (prizeCounts[prize] ?? 0) + 1
   }
@@ -171,12 +238,14 @@ function App() {
   const [authMessage, setAuthMessage] = useState('')
   const [copyMessage, setCopyMessage] = useState('')
   const [now, setNow] = useState(() => Date.now())
+  const [gameSettings, setGameSettings] = useState<GameSettings>(() => loadGameSettings())
+  const [showPricePanel, setShowPricePanel] = useState(false)
   const [slotReels, setSlotReels] = useState(['BD', 'FYI', '777'])
   const [coinFace, setCoinFace] = useState('BD')
   const [highLowCard, setHighLowCard] = useState(() => Math.ceil(Math.random() * 13))
   const [diceRoll, setDiceRoll] = useState(6)
   const [luckyNumber, setLuckyNumber] = useState(1)
-  const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket())
+  const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket(loadGameSettings()))
   const [flaxPaidPrize, setFlaxPaidPrize] = useState(0)
   const [activeHelp, setActiveHelp] = useState<GameName | ''>('')
   const [gameResult, setGameResult] = useState<GameResult>({
@@ -311,6 +380,10 @@ function App() {
   }, [activeCasinoUser, currentUsername])
 
   useEffect(() => {
+    window.localStorage.setItem(GAME_SETTINGS_STORAGE_KEY, JSON.stringify(gameSettings))
+  }, [gameSettings])
+
+  useEffect(() => {
     const timeouts = autoplayTimeouts.current
 
     return () => {
@@ -321,14 +394,22 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const closeHelp = (event: KeyboardEvent) => {
+    const handleKeyboard = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setActiveHelp('')
       }
+
+      const target = event.target
+      const isTyping = target instanceof HTMLElement
+        && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+
+      if (!isTyping && event.key.toLowerCase() === 'p' && currentUsernameRef.current === 'niklas') {
+        setShowPricePanel((isVisible) => !isVisible)
+      }
     }
 
-    window.addEventListener('keydown', closeHelp)
-    return () => window.removeEventListener('keydown', closeHelp)
+    window.addEventListener('keydown', handleKeyboard)
+    return () => window.removeEventListener('keydown', handleKeyboard)
   }, [])
 
   const goToPath = (path: string) => {
@@ -491,11 +572,35 @@ function App() {
     </div>
   )
 
+  const getGameHelpDescription = (game: GameName) => {
+    if (game === 'slots') {
+      return `Costs ${gameSettings.slotsCost} coins. Three matching reels pay ${gameSettings.slotsTriplePayout}. Two matching reels pay ${gameSettings.slotsPairPayout}.`
+    }
+
+    if (game === 'flip') {
+      return `Costs ${gameSettings.flipCost} coins. Pick BD or FYI. If the coin lands on your pick, you get ${gameSettings.flipPayout}.`
+    }
+
+    if (game === 'highLow') {
+      return `Costs ${gameSettings.highLowCost} coins. The shown number is in the 1-13 range. Guess if the next number will be higher or lower. Correct pays ${gameSettings.highLowPayout}.`
+    }
+
+    if (game === 'dice') {
+      return `Costs ${gameSettings.diceCost} coins. Roll a six to get ${gameSettings.diceSixPayout}. Roll four or five to get ${gameSettings.diceHighPayout}.`
+    }
+
+    if (game === 'lucky') {
+      return `Costs ${gameSettings.luckyCost} coins. Pick 1, 2, or 3. If the machine picks the same number, you get ${gameSettings.luckyPayout}.`
+    }
+
+    return `Costs ${gameSettings.flaxCost} coins. Scratch all 9 squares. Three equal prize numbers pays that prize.`
+  }
+
   const renderGameHelpButton = (game: GameName) => (
     <button
       className="game-help-button"
       type="button"
-      aria-label={`Show ${GAME_HELP[game].title} rules`}
+      aria-label={`Show ${GAME_TITLES[game]} rules`}
       onClick={() => setActiveHelp(game)}
     >
       ?
@@ -635,7 +740,7 @@ function App() {
   }
 
   const playSlots = () => {
-    const cost = 100
+    const cost = gameSettings.slotsCost
 
     const username = beginGame('slots', cost)
 
@@ -649,7 +754,11 @@ function App() {
         () => SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
       )
       const uniqueSymbols = new Set(reels).size
-      const payout = uniqueSymbols === 1 ? 1200 : uniqueSymbols === 2 ? 250 : 0
+      const payout = uniqueSymbols === 1
+        ? gameSettings.slotsTriplePayout
+        : uniqueSymbols === 2
+          ? gameSettings.slotsPairPayout
+          : 0
 
       setSlotReels(reels)
       if (payout > 0) {
@@ -667,7 +776,7 @@ function App() {
   }
 
   const playCoinFlip = (pick: string) => {
-    const cost = 100
+    const cost = gameSettings.flipCost
 
     const username = beginGame('flip', cost)
 
@@ -678,7 +787,7 @@ function App() {
     window.setTimeout(() => {
       const face = Math.random() > 0.5 ? 'BD' : 'FYI'
       const won = face === pick
-      const payout = won ? 220 : 0
+      const payout = won ? gameSettings.flipPayout : 0
 
       setCoinFace(face)
       if (payout > 0) {
@@ -694,7 +803,7 @@ function App() {
   }
 
   const playHighLow = (guess: 'higher' | 'lower') => {
-    const cost = 150
+    const cost = gameSettings.highLowCost
 
     const username = beginGame('highLow', cost)
 
@@ -707,7 +816,7 @@ function App() {
     window.setTimeout(() => {
       const nextCard = Math.ceil(Math.random() * 13)
       const won = guess === 'higher' ? nextCard > startCard : nextCard < startCard
-      const payout = won ? 360 : 0
+      const payout = won ? gameSettings.highLowPayout : 0
 
       if (payout > 0) {
         emitFloatingDelta('highLow', payout)
@@ -723,7 +832,7 @@ function App() {
   }
 
   const playDice = () => {
-    const cost = 200
+    const cost = gameSettings.diceCost
     const username = beginGame('dice', cost)
 
     if (!username) {
@@ -732,7 +841,11 @@ function App() {
 
     window.setTimeout(() => {
       const roll = Math.ceil(Math.random() * 6)
-      const payout = roll === 6 ? 900 : roll >= 4 ? 320 : 0
+      const payout = roll === 6
+        ? gameSettings.diceSixPayout
+        : roll >= 4
+          ? gameSettings.diceHighPayout
+          : 0
 
       setDiceRoll(roll)
       if (payout > 0) {
@@ -748,7 +861,7 @@ function App() {
   }
 
   const playLucky = (pick: number) => {
-    const cost = 250
+    const cost = gameSettings.luckyCost
     const username = beginGame('lucky', cost)
 
     if (!username) {
@@ -758,7 +871,7 @@ function App() {
     window.setTimeout(() => {
       const number = Math.ceil(Math.random() * 3)
       const won = number === pick
-      const payout = won ? 650 : 0
+      const payout = won ? gameSettings.luckyPayout : 0
 
       setLuckyNumber(number)
       if (payout > 0) {
@@ -774,14 +887,14 @@ function App() {
   }
 
   const buyFlaxTicket = () => {
-    const cost = FLAX_COST
+    const cost = gameSettings.flaxCost
     const username = beginGame('flax', cost)
 
     if (!username) {
       return
     }
 
-    setFlaxTicket(createFlaxTicket())
+    setFlaxTicket(createFlaxTicket(gameSettings))
     setFlaxPaidPrize(0)
     setGameResult({
       title: 'FLAX-lodd ready',
@@ -883,6 +996,47 @@ function App() {
       ) : (
         <p className="top-list-empty">No users yet.</p>
       )}
+    </section>
+  )
+
+  const updateGameSetting = (setting: keyof GameSettings, value: string) => {
+    setGameSettings((settings) => ({
+      ...settings,
+      [setting]: normalizeSettingValue(Number(value)),
+    }))
+  }
+
+  const resetGameSettings = () => {
+    setGameSettings(DEFAULT_GAME_SETTINGS)
+    setFlaxTicket(createFlaxTicket(DEFAULT_GAME_SETTINGS))
+  }
+
+  const renderPricePanel = () => (
+    <section className="price-admin-panel" aria-labelledby="price-admin-title">
+      <div className="price-admin-header">
+        <p className="eyebrow">Press P</p>
+        <h2 id="price-admin-title">Game prices</h2>
+        <button className="game-button alt" type="button" onClick={() => setShowPricePanel(false)}>
+          Close
+        </button>
+      </div>
+      <div className="price-admin-grid">
+        {(Object.entries(GAME_SETTING_LABELS) as [keyof GameSettings, string][]).map(([setting, label]) => (
+          <label key={setting}>
+            {label}
+            <input
+              inputMode="numeric"
+              min="0"
+              type="number"
+              value={gameSettings[setting]}
+              onChange={(event) => updateGameSetting(setting, event.target.value)}
+            />
+          </label>
+        ))}
+      </div>
+      <button className="game-button" type="button" onClick={resetGameSettings}>
+        Reset defaults
+      </button>
     </section>
   )
 
@@ -1018,6 +1172,8 @@ function App() {
           </div>
         </section>
 
+        {canAdminUsers && showPricePanel && renderPricePanel()}
+
         {renderTopList('user')}
 
         <section className="game-grid" aria-label="Casino games">
@@ -1027,7 +1183,7 @@ function App() {
               <strong>{activeCasinoUser.coins.toLocaleString()} coins</strong>
             </div>
             <div className="game-heading">
-              <p className="eyebrow">Cost: 100</p>
+              <p className="eyebrow">Cost: {gameSettings.slotsCost}</p>
               <h2>Slots</h2>
               {renderGameHelpButton('slots')}
             </div>
@@ -1036,7 +1192,7 @@ function App() {
                 <span key={`${reel}-${index}`}>{reel}</span>
               ))}
             </div>
-            <p>Three match pays 1200. Two match pays 250.</p>
+            <p>Three match pays {gameSettings.slotsTriplePayout}. Two match pays {gameSettings.slotsPairPayout}.</p>
             <button className="game-button" type="button" disabled={!isOwnPage || animatingGames.slots} onClick={playSlots}>
               {animatingGames.slots ? 'Spinning' : 'Spin'}
             </button>
@@ -1049,12 +1205,12 @@ function App() {
               <strong>{activeCasinoUser.coins.toLocaleString()} coins</strong>
             </div>
             <div className="game-heading">
-              <p className="eyebrow">Cost: 100</p>
+              <p className="eyebrow">Cost: {gameSettings.flipCost}</p>
               <h2>Coin flip</h2>
               {renderGameHelpButton('flip')}
             </div>
             <div className="coin-display">{coinFace}</div>
-            <p>Pick a side. Correct pays 220.</p>
+            <p>Pick a side. Correct pays {gameSettings.flipPayout}.</p>
             <div className="game-actions">
               <button className="game-button" type="button" disabled={!isOwnPage || animatingGames.flip} onClick={() => playCoinFlip('BD')}>
                 BD
@@ -1072,12 +1228,12 @@ function App() {
               <strong>{activeCasinoUser.coins.toLocaleString()} coins</strong>
             </div>
             <div className="game-heading">
-              <p className="eyebrow">Cost: 150</p>
+              <p className="eyebrow">Cost: {gameSettings.highLowCost}</p>
               <h2>High low</h2>
               {renderGameHelpButton('highLow')}
             </div>
             <div className="card-display">{highLowCard}</div>
-            <p>Guess the next card. Correct pays 360.</p>
+            <p>The shown number is 1-13. Guess the next number. Correct pays {gameSettings.highLowPayout}.</p>
             <div className="game-actions">
               <button className="game-button" type="button" disabled={!isOwnPage || animatingGames.highLow} onClick={() => playHighLow('higher')}>
                 Higher
@@ -1095,12 +1251,12 @@ function App() {
               <strong>{activeCasinoUser.coins.toLocaleString()} coins</strong>
             </div>
             <div className="game-heading">
-              <p className="eyebrow">Cost: 200</p>
+              <p className="eyebrow">Cost: {gameSettings.diceCost}</p>
               <h2>Dice roll</h2>
               {renderGameHelpButton('dice')}
             </div>
             <div className="dice-display">{diceRoll}</div>
-            <p>Six pays 900. Four or five pays 320.</p>
+            <p>Six pays {gameSettings.diceSixPayout}. Four or five pays {gameSettings.diceHighPayout}.</p>
             <button className="game-button" type="button" disabled={!isOwnPage || animatingGames.dice} onClick={playDice}>
               {animatingGames.dice ? 'Rolling' : 'Roll'}
             </button>
@@ -1113,12 +1269,12 @@ function App() {
               <strong>{activeCasinoUser.coins.toLocaleString()} coins</strong>
             </div>
             <div className="game-heading">
-              <p className="eyebrow">Cost: 250</p>
+              <p className="eyebrow">Cost: {gameSettings.luckyCost}</p>
               <h2>Lucky pick</h2>
               {renderGameHelpButton('lucky')}
             </div>
             <div className="lucky-display">{luckyNumber}</div>
-            <p>Pick one number. Match the machine for 650.</p>
+            <p>Pick one number. Match the machine for {gameSettings.luckyPayout}.</p>
             <div className="game-actions three-actions">
               <button
                 className="game-button"
@@ -1154,7 +1310,7 @@ function App() {
               <strong>{activeCasinoUser.coins.toLocaleString()} coins</strong>
             </div>
             <div className="game-heading">
-              <p className="eyebrow">Cost: {FLAX_COST}</p>
+              <p className="eyebrow">Cost: {gameSettings.flaxCost}</p>
               <h2>FLAX-lodd</h2>
               {renderGameHelpButton('flax')}
             </div>
@@ -1209,8 +1365,8 @@ function App() {
               aria-labelledby="help-title"
             >
               <p className="eyebrow">Game rules</p>
-              <h2 id="help-title">{GAME_HELP[activeHelp].title}</h2>
-              <p>{GAME_HELP[activeHelp].description}</p>
+              <h2 id="help-title">{GAME_TITLES[activeHelp]}</h2>
+              <p>{getGameHelpDescription(activeHelp)}</p>
             </section>
           </div>
         )}
@@ -1351,6 +1507,8 @@ function App() {
           </button>
         </div>
       </section>
+
+      {currentUsername === 'niklas' && showPricePanel && renderPricePanel()}
 
       <section className="badge-strip" id="flavor" aria-label="Site highlights">
         {badges.map((badge) => (
