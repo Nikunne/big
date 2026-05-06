@@ -2459,7 +2459,7 @@ function App() {
           <h2 id="domain-sale-title">Buy bigdick.fyi</h2>
           <p>
             Own the loudest tiny corner of the internet for <strong>$10,000</strong>.
-            One domain. Infinite raised eyebrows. Zero boring business cards.
+            One domain. Infinite raised eyebrows. Zero boring business cards. (price only includes domain-name)
           </p>
         </div>
         <a className="price-ticket" href="mailto:contact@bigdick.fyi?subject=I%20want%20to%20buy%20bigdick.fyi">
