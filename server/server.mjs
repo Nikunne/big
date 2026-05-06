@@ -104,6 +104,7 @@ if (!userColumns.has('wallet_created_at')) {
 if (!userColumns.has('last_wallet_check_at')) {
   db.exec('ALTER TABLE users ADD COLUMN last_wallet_check_at INTEGER NOT NULL DEFAULT 0')
 }
+db.exec("UPDATE users SET wallet_address = NULL WHERE wallet_address = ''")
 
 const hashPassword = (password) => (
   createHash('sha256').update(password).digest('hex')
@@ -254,7 +255,7 @@ const createUncCoinWalletIfAvailable = async (username) => {
     return await createUncCoinWallet(username)
   } catch (error) {
     console.error(`Could not create UncCoin wallet for ${username}:`, error)
-    return ''
+    return null
   }
 }
 
