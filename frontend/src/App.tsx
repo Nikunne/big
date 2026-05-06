@@ -164,6 +164,10 @@ const pickRandomHighLowGuess = (): 'higher' | 'lower' => (
 
 const pickRandomLuckyNumber = () => Math.ceil(Math.random() * 3)
 
+const getSlotSymbolClassName = (symbol: string) => (
+  `slot-symbol slot-symbol-${symbol.toLowerCase().replaceAll('!', 'bang')}`
+)
+
 const shuffle = <Item,>(items: Item[]) => {
   const shuffledItems = [...items]
 
@@ -1482,7 +1486,7 @@ function App() {
             </div>
             <div className="game-reels" aria-label={`Slot result ${slotReels.join(' ')}`}>
               {slotReels.map((reel, index) => (
-                <span key={`${reel}-${index}`}>
+                <span className={getSlotSymbolClassName(reel)} key={`${reel}-${index}`}>
                   {animatingGames.slots ? (
                     <span
                       className="slot-strip"
@@ -1491,7 +1495,9 @@ function App() {
                       } as CSSProperties}
                     >
                       {slotSpinSequences[index].map((symbol, symbolIndex) => (
-                        <span key={`${symbol}-${symbolIndex}`}>{symbol}</span>
+                        <span className={getSlotSymbolClassName(symbol)} key={`${symbol}-${symbolIndex}`}>
+                          {symbol}
+                        </span>
                       ))}
                     </span>
                   ) : reel}

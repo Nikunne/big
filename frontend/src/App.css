@@ -1261,14 +1261,6 @@ h1 {
   text-align: center;
 }
 
-.game-reels > span:nth-child(2) {
-  background: #fff200;
-}
-
-.game-reels > span:nth-child(3) {
-  background: #00e1ff;
-}
-
 .slot-strip {
   --slot-stop: -1344px;
   position: absolute;
@@ -1283,6 +1275,26 @@ h1 {
   min-height: 96px;
   place-items: center;
   line-height: 1;
+}
+
+.slot-symbol-bd {
+  background: #ff72c8;
+}
+
+.slot-symbol-fyi {
+  background: #00e1ff;
+}
+
+.slot-symbol-1000 {
+  background: #77ff68;
+}
+
+.slot-symbol-bangbangbang {
+  background: #fff200;
+}
+
+.slot-symbol-777 {
+  background: #fffdf5;
 }
 
 .coin-display,
