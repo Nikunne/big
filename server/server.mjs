@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomInt } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
@@ -35,6 +35,7 @@ const uncCoinHouseAddress = String(process.env.UNC_BETTING_SHARK_ADDRESS ?? '')
 const uncDepositPollMs = Math.max(5000, Number(process.env.UNC_DEPOSIT_POLL_MS ?? 60000))
 const sessions = new Map()
 const activeFlaxTickets = new Map()
+const activeHighLowCards = new Map()
 const slotSymbols = ['BD', 'FYI', '1000', '!!!', '777']
 const defaultGameSettings = {
   slotsCost: 160,
@@ -73,7 +74,8 @@ db.exec(`
     last_claim_at INTEGER NOT NULL DEFAULT 0,
     wallet_address TEXT UNIQUE,
     wallet_created_at INTEGER NOT NULL DEFAULT 0,
-    last_wallet_check_at INTEGER NOT NULL DEFAULT 0
+    last_wallet_check_at INTEGER NOT NULL DEFAULT 0,
+    transfer_blocked INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS game_settings (
@@ -104,6 +106,9 @@ if (!userColumns.has('wallet_created_at')) {
 if (!userColumns.has('last_wallet_check_at')) {
   db.exec('ALTER TABLE users ADD COLUMN last_wallet_check_at INTEGER NOT NULL DEFAULT 0')
 }
+if (!userColumns.has('transfer_blocked')) {
+  db.exec('ALTER TABLE users ADD COLUMN transfer_blocked INTEGER NOT NULL DEFAULT 0')
+}
 db.exec("UPDATE users SET wallet_address = NULL WHERE wallet_address = ''")
 
 const hashPassword = (password) => (
@@ -133,16 +138,17 @@ const publicUser = (row) => ({
   walletAddress: row.wallet_address ?? '',
   walletCreatedAt: row.wallet_created_at,
   lastWalletCheckAt: row.last_wallet_check_at,
+  transferBlocked: Boolean(row.transfer_blocked),
 })
 
 const getUser = db.prepare(
-  'SELECT username, coins, last_claim_at, wallet_address, wallet_created_at, last_wallet_check_at FROM users WHERE username = ?',
+  'SELECT username, coins, last_claim_at, wallet_address, wallet_created_at, last_wallet_check_at, transfer_blocked FROM users WHERE username = ?',
 )
 const getUserWithPassword = db.prepare(
-  'SELECT username, password_hash, coins, last_claim_at, wallet_address, wallet_created_at, last_wallet_check_at FROM users WHERE username = ?',
+  'SELECT username, password_hash, coins, last_claim_at, wallet_address, wallet_created_at, last_wallet_check_at, transfer_blocked FROM users WHERE username = ?',
 )
 const listUsers = db.prepare(
-  'SELECT username, coins, last_claim_at, wallet_address, wallet_created_at, last_wallet_check_at FROM users ORDER BY username COLLATE NOCASE',
+  'SELECT username, coins, last_claim_at, wallet_address, wallet_created_at, last_wallet_check_at, transfer_blocked FROM users ORDER BY username COLLATE NOCASE',
 )
 const createUser = db.prepare(
   'INSERT INTO users (username, password_hash, coins, last_claim_at, wallet_address, wallet_created_at) VALUES (?, ?, 0, 0, ?, ?)',
@@ -154,11 +160,17 @@ const setPassword = db.prepare(
 const setCoins = db.prepare(
   'UPDATE users SET coins = max(0, ?) WHERE username = ?',
 )
+const setTransferBlocked = db.prepare(
+  'UPDATE users SET transfer_blocked = ? WHERE username = ?',
+)
 const adjustCoins = db.prepare(
   'UPDATE users SET coins = max(0, coins + ?) WHERE username = ?',
 )
 const debitCoins = db.prepare(
   'UPDATE users SET coins = coins - ? WHERE username = ? AND coins >= ?',
+)
+const creditCoins = db.prepare(
+  'UPDATE users SET coins = coins + ? WHERE username = ?',
 )
 const setUserWallet = db.prepare(
   'UPDATE users SET wallet_address = ?, wallet_created_at = ? WHERE username = ?',
@@ -273,7 +285,12 @@ const ensureUserWallet = async (username) => {
     return user?.wallet_address ?? ''
   }
 
-  const walletAddress = await createUncCoinWallet(username)
+  const walletAddress = await createUncCoinWalletIfAvailable(username)
+
+  if (!walletAddress) {
+    return ''
+  }
+
   setUserWallet.run(walletAddress, Date.now(), username)
   return walletAddress
 }
@@ -347,15 +364,22 @@ const syncAllWalletDeposits = async () => {
   }
 }
 
-const pickRandomCoinFace = () => (Math.random() > 0.5 ? 'BD' : 'FYI')
-const pickRandomLuckyNumber = () => Math.ceil(Math.random() * 3)
-const pickRandomHighLowGuess = () => (Math.random() > 0.5 ? 'higher' : 'lower')
+const pickRandomCoinFace = () => (randomInt(2) === 0 ? 'BD' : 'FYI')
+const pickRandomLuckyNumber = () => randomInt(1, 4)
+const pickRandomHighLowGuess = () => (randomInt(2) === 0 ? 'higher' : 'lower')
+const pickRandomCard = () => randomInt(1, 14)
+
+const normalizeCoinPick = (pick) => (pick === 'BD' || pick === 'FYI' ? pick : '')
+const normalizeHighLowGuess = (guess) => (guess === 'higher' || guess === 'lower' ? guess : '')
+const normalizeLuckyPick = (pick) => (
+  typeof pick === 'number' && Number.isInteger(pick) && pick >= 1 && pick <= 3 ? pick : 0
+)
 
 const shuffle = (items) => {
   const shuffledItems = [...items]
 
   for (let index = shuffledItems.length - 1; index > 0; index -= 1) {
-    const randomIndex = Math.floor(Math.random() * (index + 1))
+    const randomIndex = randomInt(index + 1)
     const item = shuffledItems[index]
     shuffledItems[index] = shuffledItems[randomIndex]
     shuffledItems[randomIndex] = item
@@ -374,7 +398,7 @@ const getFlaxPrizes = (settings) => [
 
 const pickWeightedFlaxPrize = (availablePrizes) => {
   const totalWeight = availablePrizes.reduce((total, prize) => total + prize.weight, 0)
-  let pick = Math.random() * totalWeight
+  let pick = randomInt(totalWeight)
 
   for (const prize of availablePrizes) {
     pick -= prize.weight
@@ -389,7 +413,7 @@ const pickWeightedFlaxPrize = (availablePrizes) => {
 
 const createFlaxTicket = (settings) => {
   const flaxPrizes = getFlaxPrizes(settings)
-  const isWinningTicket = Math.random() < 0.35
+  const isWinningTicket = randomInt(100) < 35
   const winningPrize = pickWeightedFlaxPrize(flaxPrizes)
   const prizes = isWinningTicket ? [winningPrize, winningPrize, winningPrize] : []
   const prizeCounts = prizes.reduce((counts, prize) => ({
@@ -438,16 +462,24 @@ const runCoinGame = (username, cost, play) => {
     return { error: `This game costs ${cost.toLocaleString()} coins.` }
   }
 
-  adjustCoins.run(-cost, username)
-  const result = play()
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    adjustCoins.run(-cost, username)
+    const result = play()
 
-  if (result.payout > 0) {
-    adjustCoins.run(result.payout, username)
-  }
+    if (result.payout > 0) {
+      adjustCoins.run(result.payout, username)
+    }
 
-  return {
-    game: { cost, ...result },
-    user: publicUser(getUser.get(username)),
+    db.exec('COMMIT')
+
+    return {
+      game: { cost, ...result },
+      user: publicUser(getUser.get(username)),
+    }
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
   }
 }
 
@@ -591,6 +623,8 @@ createServer(async (request, response) => {
         }
 
         deleteUser.run(username)
+        activeFlaxTickets.delete(username)
+        activeHighLowCards.delete(username)
         for (const [token, sessionUsername] of sessions.entries()) {
           if (sessionUsername === username) {
             sessions.delete(token)
@@ -626,6 +660,23 @@ createServer(async (request, response) => {
         return
       }
 
+      if (request.method === 'PATCH' && action === 'transfer-block') {
+        if (getSessionUsername(request) !== adminUsername) {
+          sendJson(response, 403, { error: 'Admin session required.' })
+          return
+        }
+
+        if (username === adminUsername) {
+          sendJson(response, 400, { error: 'The admin account cannot be blocked.' })
+          return
+        }
+
+        const body = await readJson(request)
+        setTransferBlocked.run(body.blocked ? 1 : 0, username)
+        sendJson(response, 200, { user: publicUser(getUser.get(username)) })
+        return
+      }
+
       if (request.method === 'POST' && action === 'sync-wallet') {
         const sessionUsername = getSessionUsername(request)
 
@@ -643,6 +694,11 @@ createServer(async (request, response) => {
       if (request.method === 'POST' && action === 'withdraw') {
         if (getSessionUsername(request) !== username) {
           sendJson(response, 403, { error: 'You can only withdraw from your own account.' })
+          return
+        }
+
+        if (getUser.get(username).transfer_blocked) {
+          sendJson(response, 403, { error: 'This account is blocked from sending coins and withdrawing.' })
           return
         }
 
@@ -698,6 +754,68 @@ createServer(async (request, response) => {
         return
       }
 
+      if (request.method === 'POST' && action === 'transfer') {
+        if (getSessionUsername(request) !== username) {
+          sendJson(response, 403, { error: 'You can only send from your own account.' })
+          return
+        }
+
+        if (getUser.get(username).transfer_blocked) {
+          sendJson(response, 403, { error: 'This account is blocked from sending coins and withdrawing.' })
+          return
+        }
+
+        const body = await readJson(request)
+        const recipientUsername = normalizeUsername(body.recipientUsername)
+        const rawAmount = Number(body.amount)
+        const amount = Number.isFinite(rawAmount) && rawAmount <= Number.MAX_SAFE_INTEGER
+          ? Math.floor(rawAmount)
+          : 0
+
+        if (!recipientUsername) {
+          sendJson(response, 400, { error: 'Choose a player to receive coins.' })
+          return
+        }
+
+        if (recipientUsername === username) {
+          sendJson(response, 400, { error: 'You cannot send coins to yourself.' })
+          return
+        }
+
+        if (amount <= 0) {
+          sendJson(response, 400, { error: 'Transfer amount must be positive.' })
+          return
+        }
+
+        if (!getUser.get(recipientUsername)) {
+          sendJson(response, 404, { error: 'Recipient user not found.' })
+          return
+        }
+
+        db.exec('BEGIN IMMEDIATE')
+        try {
+          const debitResult = debitCoins.run(amount, username, amount)
+
+          if (debitResult.changes === 0) {
+            db.exec('ROLLBACK')
+            sendJson(response, 409, { error: 'Insufficient balance.' })
+            return
+          }
+
+          creditCoins.run(amount, recipientUsername)
+          db.exec('COMMIT')
+        } catch (error) {
+          db.exec('ROLLBACK')
+          throw error
+        }
+
+        sendJson(response, 200, {
+          sender: publicUser(getUser.get(username)),
+          recipient: publicUser(getUser.get(recipientUsername)),
+        })
+        return
+      }
+
       if (request.method === 'POST' && action === 'play') {
         if (getSessionUsername(request) !== username) {
           sendJson(response, 403, { error: 'You can only play from your own account.' })
@@ -725,17 +843,30 @@ createServer(async (request, response) => {
             return { payout, reels }
           })
         } else if (game === 'flip') {
+          const pick = normalizeCoinPick(body.pick)
+
+          if (!pick) {
+            sendJson(response, 400, { error: 'Pick BD or FYI.' })
+            return
+          }
+
           result = runCoinGame(username, settings.flipCost, () => {
-            const pick = String(body.pick ?? '')
             const face = pickRandomCoinFace()
             return { payout: face === pick ? settings.flipPayout : 0, face, pick }
           })
         } else if (game === 'highLow') {
+          const guess = normalizeHighLowGuess(body.guess)
+
+          if (!guess) {
+            sendJson(response, 400, { error: 'Guess higher or lower.' })
+            return
+          }
+
           result = runCoinGame(username, settings.highLowCost, () => {
-            const guess = String(body.guess ?? pickRandomHighLowGuess())
-            const startCard = Math.max(1, Math.min(13, Math.floor(Number(body.startCard) || 1)))
-            const nextCard = Math.ceil(Math.random() * 13)
+            const startCard = activeHighLowCards.get(username) ?? pickRandomCard()
+            const nextCard = pickRandomCard()
             const won = guess === 'higher' ? nextCard > startCard : nextCard < startCard
+            activeHighLowCards.set(username, nextCard)
 
             return {
               payout: won ? settings.highLowPayout : 0,
@@ -746,7 +877,7 @@ createServer(async (request, response) => {
           })
         } else if (game === 'dice') {
           result = runCoinGame(username, settings.diceCost, () => {
-            const roll = Math.ceil(Math.random() * 6)
+            const roll = randomInt(1, 7)
             const payout = roll === 6
               ? settings.diceSixPayout
               : roll >= 4
@@ -756,8 +887,14 @@ createServer(async (request, response) => {
             return { payout, roll }
           })
         } else if (game === 'lucky') {
+          const pick = normalizeLuckyPick(body.pick)
+
+          if (!pick) {
+            sendJson(response, 400, { error: 'Pick exactly one number: 1, 2, or 3.' })
+            return
+          }
+
           result = runCoinGame(username, settings.luckyCost, () => {
-            const pick = Math.max(1, Math.min(3, Math.floor(Number(body.pick) || pickRandomLuckyNumber())))
             const number = pickRandomLuckyNumber()
 
             return { payout: number === pick ? settings.luckyPayout : 0, number, pick }

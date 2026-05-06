@@ -9,6 +9,7 @@ type UserRecord = {
   walletAddress: string
   walletCreatedAt: number
   lastWalletCheckAt: number
+  transferBlocked: boolean
 }
 
 type AuthMode = 'login' | 'signup'
@@ -47,6 +48,10 @@ type WithdrawResponse = {
     ok?: boolean
     status?: string
   }
+}
+type TransferResponse = {
+  sender: UserRecord
+  recipient: UserRecord
 }
 type GameResult = {
   title: string
@@ -270,6 +275,10 @@ function App() {
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [showWalletHelp, setShowWalletHelp] = useState(false)
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false)
+  const [transferRecipient, setTransferRecipient] = useState('')
+  const [transferAmount, setTransferAmount] = useState('')
+  const [transferMessage, setTransferMessage] = useState('')
+  const [showTransferConfirm, setShowTransferConfirm] = useState(false)
   const [copyMessage, setCopyMessage] = useState('')
   const [gameSettings, setGameSettings] = useState<GameSettings>(DEFAULT_GAME_SETTINGS)
   const [showPricePanel, setShowPricePanel] = useState(false)
@@ -463,6 +472,7 @@ function App() {
         setShowPasswordPanel(false)
         setShowWalletHelp(false)
         setShowWithdrawConfirm(false)
+        setShowTransferConfirm(false)
       }
 
       const target = event.target
@@ -672,6 +682,11 @@ function App() {
       return false
     }
 
+    if (activeCasinoUser.transferBlocked) {
+      setWalletMessage('This account is blocked from sending coins and withdrawing.')
+      return false
+    }
+
     const amount = getWithdrawalAmount()
 
     if (amount <= 0) {
@@ -725,6 +740,114 @@ function App() {
     } catch (error) {
       upsertUser(previousUser)
       setWalletMessage(error instanceof Error ? error.message : 'Withdrawal failed.')
+    }
+  }
+
+  const getTransferAmount = () => {
+    const amount = Number(transferAmount)
+
+    return Number.isFinite(amount) && amount <= Number.MAX_SAFE_INTEGER
+      ? Math.floor(amount)
+      : 0
+  }
+
+  const validateTransfer = () => {
+    if (!currentUser) {
+      setTransferMessage('Log in before sending coins.')
+      return false
+    }
+
+    if (!transferRecipient) {
+      setTransferMessage('Choose a player.')
+      return false
+    }
+
+    if (transferRecipient === currentUser.username) {
+      setTransferMessage('You cannot send coins to yourself.')
+      return false
+    }
+
+    if (currentUser.transferBlocked) {
+      setTransferMessage('This account is blocked from sending coins and withdrawing.')
+      return false
+    }
+
+    if (!users.some((user) => user.username === transferRecipient)) {
+      setTransferMessage('That player does not exist.')
+      return false
+    }
+
+    const amount = getTransferAmount()
+
+    if (amount <= 0) {
+      setTransferMessage('Amount must be positive.')
+      return false
+    }
+
+    if (amount > currentUser.coins) {
+      setTransferMessage('Insufficient balance.')
+      return false
+    }
+
+    return true
+  }
+
+  const sendCoins = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (validateTransfer()) {
+      setShowTransferConfirm(true)
+    }
+  }
+
+  const confirmSendCoins = async () => {
+    if (!currentUser || !validateTransfer()) {
+      setShowTransferConfirm(false)
+      return
+    }
+
+    const amount = getTransferAmount()
+    setShowTransferConfirm(false)
+    setTransferMessage('Sending coins.')
+
+    try {
+      const { sender, recipient } = await apiRequest<TransferResponse>(
+        `/api/users/${encodeURIComponent(currentUser.username)}/transfer`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ recipientUsername: transferRecipient, amount }),
+        },
+      )
+      upsertUser(sender)
+      upsertUser(recipient)
+      setTransferAmount('')
+      setTransferMessage(`Sent ${amount.toLocaleString()} coins to ${recipient.username}.`)
+    } catch (error) {
+      setTransferMessage(error instanceof Error ? error.message : 'Could not send coins.')
+    }
+  }
+
+  const setUserTransferBlocked = async (username: string, blocked: boolean) => {
+    setUsers((storedUsers) => storedUsers.map((user) => (
+      user.username === username ? { ...user, transferBlocked: blocked } : user
+    )))
+
+    try {
+      const { user } = await apiRequest<{ user: UserRecord }>(
+        `/api/users/${encodeURIComponent(username)}/transfer-block`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ blocked }),
+        },
+      )
+      upsertUser(user)
+    } catch (error) {
+      const { users: loadedUsers } = await apiRequest<{ users: UserRecord[] }>('/api/users')
+      setUsers(loadedUsers)
+      setGameResult({
+        title: 'Block rejected',
+        detail: error instanceof Error ? error.message : 'Could not update transfer block.',
+      })
     }
   }
 
@@ -1104,7 +1227,8 @@ function App() {
             body: JSON.stringify({ game: 'highLow', guess, startCard }),
           },
         )
-        const nextCard = game.nextCard ?? startCard
+        const serverStartCard = game.startCard ?? startCard
+        const nextCard = game.nextCard ?? serverStartCard
         const payout = game.payout
         const won = payout > 0
 
@@ -1113,8 +1237,8 @@ function App() {
           emitFloatingDelta('highLow', payout)
         }
         setGameResult({
-          title: won ? 'Good read' : nextCard === startCard ? 'Push? No mercy' : 'Bad read',
-          detail: `${startCard} to ${nextCard}. Spent ${game.cost}, ${won ? `won ${payout}` : 'won 0'}.`,
+          title: won ? 'Good read' : nextCard === serverStartCard ? 'Push? No mercy' : 'Bad read',
+          detail: `${serverStartCard} to ${nextCard}. Spent ${game.cost}, ${won ? `won ${payout}` : 'won 0'}.`,
         })
         setHighLowCard(nextCard)
       } catch (error) {
@@ -1531,6 +1655,168 @@ function App() {
     </div>
   )
 
+  const renderTransferConfirm = () => {
+    const recipient = users.find((user) => user.username === transferRecipient)
+
+    return showTransferConfirm && currentUser && recipient ? (
+      <div
+        className="confirm-overlay"
+        role="presentation"
+        onClick={() => setShowTransferConfirm(false)}
+      >
+        <section
+          className="confirm-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="transfer-confirm-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <p className="eyebrow">Confirm transfer</p>
+          <h2 id="transfer-confirm-title">Are you sure?</h2>
+          <p>
+            Send {getTransferAmount().toLocaleString()} coins from {currentUser.username} to{' '}
+            <strong>{recipient.username}</strong>. This happens instantly.
+          </p>
+          <div className="confirm-actions">
+            <button className="game-button" type="button" onClick={confirmSendCoins}>
+              Send coins
+            </button>
+            <button
+              className="game-button alt"
+              type="button"
+              onClick={() => setShowTransferConfirm(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </section>
+      </div>
+    ) : null
+  }
+
+  const renderSendMoneyPage = () => {
+    const possibleRecipients = users.filter((user) => user.username !== currentUsername)
+    const selectedRecipient = users.find((user) => user.username === transferRecipient)
+
+    if (isLoadingUsers) {
+      return (
+        <main className="user-page">
+          <section className="missing-user">
+            <p className="eyebrow">Loading database</p>
+            <h1>Fetching users</h1>
+          </section>
+        </main>
+      )
+    }
+
+    if (!currentUser) {
+      return (
+        <main className="user-page">
+          <section className="missing-user">
+            <p className="eyebrow">Login required</p>
+            <h1>Send coins</h1>
+            <button className="primary-action" type="button" onClick={() => goToPath('/')}>
+              Back home
+            </button>
+          </section>
+        </main>
+      )
+    }
+
+    return (
+      <main className="user-page send-page">
+        <nav className="site-nav user-nav" aria-label="User navigation">
+          <button className="brand-mark nav-button" type="button" onClick={() => goToPath('/')}>
+            BD.FYI
+          </button>
+          <div className="nav-links">
+            <button type="button" onClick={() => goToPath('/send-money')}>
+              Send money
+            </button>
+            <button type="button" onClick={() => goToPath('/')}>
+              Home
+            </button>
+            <button type="button" onClick={() => goToPath(`/users/${currentUser.username}`)}>
+              My page
+            </button>
+            <button type="button" onClick={handleLogout}>
+              Log out
+            </button>
+          </div>
+        </nav>
+
+        <section className="casino-floor" aria-labelledby="send-money-title">
+          <div className="casino-copy">
+            <p className="eyebrow">Instant transfer</p>
+            <h1 id="send-money-title">Send money</h1>
+          </div>
+
+          <div className="coin-vault">
+            <span>Your balance</span>
+            <strong>{currentUser.coins.toLocaleString()}</strong>
+            <em>coins</em>
+          </div>
+        </section>
+
+        <section className="transfer-panel" aria-labelledby="transfer-title">
+          <div className="transfer-users">
+            <div className="transfer-header">
+              <p className="eyebrow">Players</p>
+              <h2 id="transfer-title">Choose receiver</h2>
+            </div>
+            {possibleRecipients.length > 0 ? (
+              <div className="transfer-user-list">
+                {possibleRecipients.map((user) => (
+                  <button
+                    className={transferRecipient === user.username ? 'is-selected' : ''}
+                    key={user.username}
+                    type="button"
+                    onClick={() => {
+                      setTransferRecipient(user.username)
+                      setTransferMessage('')
+                    }}
+                  >
+                    <strong>{user.username}</strong>
+                    <span>{user.coins.toLocaleString()} coins</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="top-list-empty">No other users yet.</p>
+            )}
+          </div>
+
+          <form className="transfer-form" onSubmit={sendCoins}>
+            <p className="eyebrow">Secure send</p>
+            <h2>Coins move now</h2>
+            <label>
+              Receiver
+              <input value={selectedRecipient?.username ?? ''} readOnly placeholder="Pick a player" />
+            </label>
+            <label>
+              Amount
+              <input
+                inputMode="numeric"
+                min="1"
+                type="number"
+                value={transferAmount}
+                onChange={(event) => setTransferAmount(event.target.value)}
+                placeholder="0"
+              />
+            </label>
+            <button className="game-button" type="submit">
+              Send coins
+            </button>
+            {transferMessage && <p className="form-message">{transferMessage}</p>}
+          </form>
+        </section>
+
+        {renderTransferConfirm()}
+        {showPasswordPanel && renderPasswordPanel()}
+      </main>
+    )
+  }
+
   const renderCasinoPage = () => {
     if (isLoadingUsers) {
       return (
@@ -1573,6 +1859,11 @@ function App() {
             BD.FYI
           </button>
           <div className="nav-links">
+            {currentUsername && (
+              <button type="button" onClick={() => goToPath('/send-money')}>
+                Send money
+              </button>
+            )}
             <button type="button" onClick={() => goToPath('/')}>
               Home
             </button>
@@ -1981,6 +2272,7 @@ function App() {
                     <div>
                       <strong>{user.username}</strong>
                       <span>{user.coins.toLocaleString()} coins</span>
+                      {user.transferBlocked && <span className="admin-block-status">Send blocked</span>}
                       <code>{user.walletAddress || 'No wallet'}</code>
                     </div>
                     <label>
@@ -2018,6 +2310,14 @@ function App() {
                         Save
                       </button>
                       <button
+                        className={user.transferBlocked ? 'warning' : ''}
+                        type="button"
+                        disabled={user.username === 'niklas'}
+                        onClick={() => setUserTransferBlocked(user.username, !user.transferBlocked)}
+                      >
+                        {user.transferBlocked ? 'Unblock send' : 'Block send'}
+                      </button>
+                      <button
                         className="danger"
                         type="button"
                         disabled={user.username === 'niklas'}
@@ -2036,6 +2336,10 @@ function App() {
     )
   }
 
+  if (routePath === '/send-money') {
+    return renderSendMoneyPage()
+  }
+
   if (routePath.startsWith('/users/')) {
     return renderCasinoPage()
   }
@@ -2048,6 +2352,11 @@ function App() {
             BD.FYI
           </a>
           <div className="nav-links">
+            {currentUser && (
+              <button type="button" onClick={() => goToPath('/send-money')}>
+                Send money
+              </button>
+            )}
             {menuItems.map((item) => (
               <a key={item} href={`#${item.toLowerCase().replaceAll(' ', '-')}`}>
                 {item}

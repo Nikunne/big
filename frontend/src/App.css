@@ -1098,6 +1098,130 @@ h1 {
   grid-template-columns: 1fr;
 }
 
+.transfer-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+  gap: 16px;
+  max-width: 1180px;
+  margin: clamp(22px, 4vw, 38px) auto 0;
+  padding: 14px;
+  border: 7px solid #101010;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.74) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(rgba(255, 255, 255, 0.74) 1px, transparent 1px) 0 0 / 28px 28px,
+    #00e1ff;
+  box-shadow: 14px 14px 0 #101010;
+  color: #101010;
+}
+
+.transfer-users,
+.transfer-form {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.transfer-header {
+  display: grid;
+  gap: 10px;
+}
+
+.transfer-header .eyebrow,
+.transfer-form .eyebrow {
+  margin: 0;
+}
+
+.transfer-header h2,
+.transfer-form h2 {
+  color: #101010;
+  font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', var(--heading);
+  font-size: clamp(42px, 6vw, 78px);
+  line-height: 0.85;
+  text-transform: uppercase;
+  text-shadow: 5px 5px 0 #fff200, 10px 10px 0 #ff72c8;
+}
+
+.transfer-user-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.transfer-user-list button {
+  display: grid;
+  gap: 8px;
+  min-height: 86px;
+  padding: 12px;
+  border: 5px solid #101010;
+  background: #fffdf5;
+  box-shadow: 7px 7px 0 #101010;
+  color: #101010;
+  cursor: pointer;
+  text-align: left;
+}
+
+.transfer-user-list button:nth-child(3n + 1) {
+  background: #fff200;
+}
+
+.transfer-user-list button:nth-child(3n + 2) {
+  background: #ff72c8;
+}
+
+.transfer-user-list button:nth-child(3n) {
+  background: #77ff68;
+}
+
+.transfer-user-list button.is-selected {
+  background: #101010;
+  color: #fffdf5;
+  transform: translate(4px, 4px);
+  box-shadow: 3px 3px 0 #101010;
+}
+
+.transfer-user-list strong,
+.transfer-user-list span,
+.transfer-form label {
+  font-family: var(--mono);
+  font-weight: 950;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.transfer-user-list strong {
+  overflow-wrap: anywhere;
+  font-size: clamp(16px, 1.8vw, 24px);
+}
+
+.transfer-user-list span {
+  font-size: 13px;
+}
+
+.transfer-form {
+  padding: 18px;
+  border: 6px solid #101010;
+  background: #fffdf5;
+  box-shadow: 9px 9px 0 #101010;
+}
+
+.transfer-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.transfer-form input {
+  min-height: 52px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 4px solid #101010;
+  background: #fff;
+  color: #101010;
+  box-shadow: 5px 5px 0 #101010;
+  font-family: var(--mono);
+  font-weight: 900;
+}
+
 .wallet-info,
 .withdraw-form {
   display: grid;
@@ -1834,6 +1958,7 @@ h1 {
 
 .admin-user strong,
 .admin-user span,
+.admin-block-status,
 .admin-user label,
 .admin-actions button {
   font-family: var(--mono);
@@ -1842,12 +1967,18 @@ h1 {
 }
 
 .admin-user strong,
-.admin-user span {
+.admin-user span,
+.admin-block-status {
   display: block;
   padding: 5px 8px;
   border: 3px solid #101010;
   background: #fffdf5;
   line-height: 1;
+}
+
+.admin-block-status {
+  margin-top: 5px;
+  background: #ff3b3b;
 }
 
 .admin-user strong {
@@ -1899,6 +2030,10 @@ h1 {
 
 .admin-actions button:nth-child(3) {
   background: #fffdf5;
+}
+
+.admin-actions button.warning {
+  background: #ff72c8;
 }
 
 .admin-actions button.danger {
@@ -1998,7 +2133,9 @@ button:focus-visible {
   .game-grid,
   .game-result,
   .wallet-panel,
+  .transfer-panel,
   .top-list-ranks,
+  .transfer-user-list,
   .price-admin-grid,
   .price-admin-header {
     grid-template-columns: 1fr;
@@ -2013,7 +2150,8 @@ button:focus-visible {
     justify-content: stretch;
   }
 
-  .nav-links a {
+  .nav-links a,
+  .nav-links button {
     flex: 1 1 calc(50% - 8px);
     text-align: center;
   }
