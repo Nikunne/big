@@ -80,6 +80,9 @@ const CLAIM_COOLDOWN_MS = 3000
 const FLAX_AUTOREVEAL_MS = 500
 const EMAIL_ADDRESS = 'contact@bigdick.fyi'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+const SLOT_SYMBOLS = ['BD', 'FYI', '1000', '!!!', '777']
+const SLOT_REEL_HEIGHT = 96
+const SLOT_SPIN_DURATION_MS = 1900
 const DEFAULT_GAME_SETTINGS: GameSettings = {
   slotsCost: 100,
   slotsTriplePayout: 1200,
@@ -254,6 +257,9 @@ function App() {
   const [gameSettings, setGameSettings] = useState<GameSettings>(DEFAULT_GAME_SETTINGS)
   const [showPricePanel, setShowPricePanel] = useState(false)
   const [slotReels, setSlotReels] = useState(['BD', 'FYI', '777'])
+  const [slotSpinSequences, setSlotSpinSequences] = useState<string[][]>(() => (
+    slotReels.map((reel) => [...SLOT_SYMBOLS, reel])
+  ))
   const [coinFace, setCoinFace] = useState('BD')
   const [highLowCard, setHighLowCard] = useState(() => Math.ceil(Math.random() * 13))
   const [diceRoll, setDiceRoll] = useState(6)
@@ -306,7 +312,6 @@ function App() {
     lucky: false,
     flax: false,
   })
-  const badges = ['Certified oversized vibe', 'Questionable domain', 'Very official', 'Coin faucet active']
   const details = [
     'A small internet monument with a large amount of confidence.',
     'Built for late-night clicks, accidental bookmarks, and serious unseriousness.',
@@ -314,8 +319,8 @@ function App() {
   ]
   const currentUser = users.find((user) => user.username === currentUsername)
   const menuItems = currentUser
-    ? ['Home', 'Flavor', 'Evidence', 'Buy Domain', 'Contact']
-    : ['Home', 'Flavor', 'Evidence', 'Buy Domain', 'Login', 'Contact']
+    ? ['Home', 'Evidence', 'Buy Domain', 'Contact']
+    : ['Home', 'Evidence', 'Buy Domain', 'Login', 'Contact']
   const routedUsername = routePath.match(/^\/users\/([^/]+)\/?$/)?.[1] ?? ''
   const routedUser = users.find((user) => user.username === decodeURIComponent(routedUsername))
   const activeCasinoUser = routedUser ?? currentUser
@@ -852,38 +857,50 @@ function App() {
       return
     }
 
-    window.setTimeout(async () => {
-      try {
-        const { user, game } = await apiRequest<PlayResponse>(
-          `/api/users/${encodeURIComponent(username)}/play`,
-          {
-            method: 'POST',
-            body: JSON.stringify({ game: 'slots' }),
-          },
-        )
+    const buildSlotSpinSequences = (reels: string[]) => (
+      reels.map((reel, reelIndex) => {
+        const leadSymbols = Array.from({ length: 14 }, (_, index) => (
+          SLOT_SYMBOLS[(index + reelIndex * 2) % SLOT_SYMBOLS.length]
+        ))
+        return [...leadSymbols, reel]
+      })
+    )
+
+    apiRequest<PlayResponse>(
+      `/api/users/${encodeURIComponent(username)}/play`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ game: 'slots' }),
+      },
+    )
+      .then(({ user, game }) => {
         const reels = game.reels ?? slotReels
         const payout = game.payout
 
+        setSlotSpinSequences(buildSlotSpinSequences(reels))
         setSlotReels(reels)
         upsertUser(user)
-        if (payout > 0) {
-          emitFloatingDelta('slots', payout)
-        }
-        setGameResult({
-          title: payout > 0 ? 'Slots paid' : 'Slots missed',
-          detail: payout > 0
-            ? `Spent ${game.cost}, won ${payout}. Net +${payout - game.cost}.`
-            : `Spent ${game.cost}. The reels kept the coins.`,
-        })
-      } catch (error) {
+
+        window.setTimeout(() => {
+          if (payout > 0) {
+            emitFloatingDelta('slots', payout)
+          }
+          setGameResult({
+            title: payout > 0 ? 'Slots paid' : 'Slots missed',
+            detail: payout > 0
+              ? `Spent ${game.cost}, won ${payout}. Net +${payout - game.cost}.`
+              : `Spent ${game.cost}. The reels kept the coins.`,
+          })
+          finishGame('slots')
+        }, SLOT_SPIN_DURATION_MS)
+      })
+      .catch((error) => {
         setGameResult({
           title: 'Slots rejected',
           detail: error instanceof Error ? error.message : 'Could not play slots.',
         })
-      } finally {
         finishGame('slots')
-      }
-    }, 2000)
+      })
   }
 
   const playCoinFlip = (pick: string) => {
@@ -1465,7 +1482,20 @@ function App() {
             </div>
             <div className="game-reels" aria-label={`Slot result ${slotReels.join(' ')}`}>
               {slotReels.map((reel, index) => (
-                <span key={`${reel}-${index}`}>{reel}</span>
+                <span key={`${reel}-${index}`}>
+                  {animatingGames.slots ? (
+                    <span
+                      className="slot-strip"
+                      style={{
+                        '--slot-stop': `${-(slotSpinSequences[index].length - 1) * SLOT_REEL_HEIGHT}px`,
+                      } as CSSProperties}
+                    >
+                      {slotSpinSequences[index].map((symbol, symbolIndex) => (
+                        <span key={`${symbol}-${symbolIndex}`}>{symbol}</span>
+                      ))}
+                    </span>
+                  ) : reel}
+                </span>
               ))}
             </div>
             <p>Three match pays {gameSettings.slotsTriplePayout}. Two match pays {gameSettings.slotsPairPayout}.</p>
@@ -1790,14 +1820,6 @@ function App() {
       {currentUsername === 'niklas' && showPricePanel && renderPricePanel()}
 
       {renderTopList('home')}
-
-      <section className="badge-strip" id="flavor" aria-label="Site highlights">
-        {badges.map((badge) => (
-          <div className="badge" key={badge}>
-            {badge}
-          </div>
-        ))}
-      </section>
 
       {!currentUser && renderAuthPanel()}
 
