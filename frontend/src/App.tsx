@@ -1,4 +1,4 @@
-import { type CSSProperties, type FormEvent, useEffect, useRef, useState } from 'react'
+import { type CSSProperties, type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import heroImg from './assets/hero.png'
 import './App.css'
 
@@ -308,6 +308,7 @@ function App() {
     lucky: undefined,
     flax: undefined,
   })
+  const removeZeroBalanceUsersRef = useRef<() => void>(() => {})
   const gameLocks = useRef<Record<GameName, boolean>>({
     slots: false,
     flip: false,
@@ -465,6 +466,10 @@ function App() {
 
       if (isPlainKey && !isTyping && event.key.toLowerCase() === 'p' && currentUsernameRef.current === 'niklas') {
         setShowPricePanel((isVisible) => !isVisible)
+      }
+
+      if (isPlainKey && !isTyping && event.key.toLowerCase() === 'a' && currentUsernameRef.current === 'niklas') {
+        removeZeroBalanceUsersRef.current()
       }
 
       if (isPlainKey && !isTyping && event.key.toLowerCase() === 'c' && currentUsernameRef.current) {
@@ -642,6 +647,37 @@ function App() {
   const adjustUserCoins = (username: string, coinDelta: number) => {
     updateCoins(username, coinDelta)
   }
+
+  const removeZeroBalanceUsers = useCallback(async () => {
+    try {
+      const { users: loadedUsers, removedCount } = await apiRequest<{
+        users: UserRecord[]
+        removedCount: number
+      }>('/api/users/zero-balance', { method: 'DELETE' })
+
+      setUsers(loadedUsers)
+      setAdminCoinInputs((inputs) => Object.fromEntries(
+        Object.entries(inputs).filter(([username]) =>
+          loadedUsers.some((user) => user.username === username),
+        ),
+      ))
+      setGameResult({
+        title: 'Admin cleanup',
+        detail: `Removed ${removedCount} zero-balance ${removedCount === 1 ? 'user' : 'users'}.`,
+      })
+    } catch (error) {
+      setGameResult({
+        title: 'Cleanup failed',
+        detail: error instanceof Error ? error.message : 'Could not remove zero-balance users.',
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    removeZeroBalanceUsersRef.current = () => {
+      void removeZeroBalanceUsers()
+    }
+  }, [removeZeroBalanceUsers])
 
   const emitFloatingDelta = (game: GameName, amount: number, delay = 0) => {
     window.setTimeout(() => {
@@ -1424,9 +1460,15 @@ function App() {
 
     const isOwnPage = activeCasinoUser.username === currentUsername
     const canAdminUsers = currentUsername === 'niklas'
+    const isViewOnly = !isOwnPage
 
     return (
-      <main className="user-page">
+      <main className={`user-page ${isViewOnly ? 'is-view-only' : ''}`}>
+        {isViewOnly && (
+          <div className="view-only-eye" aria-hidden="true">
+            <span></span>
+          </div>
+        )}
         <nav className="site-nav user-nav" aria-label="User navigation">
           <button className="brand-mark nav-button" type="button" onClick={() => goToPath('/')}>
             BD.FYI
@@ -1445,9 +1487,13 @@ function App() {
 
         <section className="casino-floor" aria-labelledby="casino-title">
           <div className="casino-copy">
-            <p className="eyebrow">User casino</p>
+            <p className="eyebrow">{isViewOnly ? 'View only' : 'User casino'}</p>
             <h1 id="casino-title">{activeCasinoUser.username}</h1>
-            <p className="lede">Fake coins, real button, zero financial consequences.</p>
+            <p className="lede">
+              {isViewOnly
+                ? 'Viewing this account only. Games and coin actions are hidden.'
+                : 'Fake coins, real button, zero financial consequences.'}
+            </p>
           </div>
 
           <div className="coin-vault">
@@ -1473,6 +1519,7 @@ function App() {
 
         {renderTopList('user')}
 
+        {isOwnPage && (
         <section className="game-grid" aria-label="Casino games">
           <article className={`game-card slots-game ${animatingGames.slots ? 'is-playing' : ''}`}>
             {renderFloatingDeltas('slots')}
@@ -1668,6 +1715,7 @@ function App() {
             <p>{gameResult.detail}</p>
           </aside>
         </section>
+        )}
 
         {activeHelp && (
           <div className="help-overlay" role="presentation" onClick={() => setActiveHelp('')}>
@@ -1689,7 +1737,16 @@ function App() {
         {canAdminUsers && (
           <section className="admin-panel" aria-labelledby="admin-title">
             <div className="admin-header">
-              <p className="eyebrow">Niklas only</p>
+              <div className="admin-title-row">
+                <p className="eyebrow">Niklas only</p>
+                <button
+                  className="admin-cleanup-button"
+                  type="button"
+                  onClick={() => removeZeroBalanceUsers()}
+                >
+                  Remove 0-coin users
+                </button>
+              </div>
               <h2 id="admin-title">Admin panel</h2>
             </div>
 

@@ -98,6 +98,9 @@ const setCoins = db.prepare(
 const adjustCoins = db.prepare(
   'UPDATE users SET coins = max(0, coins + ?) WHERE username = ?',
 )
+const deleteZeroBalanceUsers = db.prepare(
+  'DELETE FROM users WHERE coins = 0 AND username != ?',
+)
 const setClaim = db.prepare(
   'UPDATE users SET coins = coins + 1000, last_claim_at = ? WHERE username = ?',
 )
@@ -297,6 +300,20 @@ createServer(async (request, response) => {
       }
 
       sendJson(response, 200, { settings: getGameSettings() })
+      return
+    }
+
+    if (request.method === 'DELETE' && url.pathname === '/api/users/zero-balance') {
+      if (getSessionUsername(request) !== adminUsername) {
+        sendJson(response, 403, { error: 'Admin session required.' })
+        return
+      }
+
+      const result = deleteZeroBalanceUsers.run(adminUsername)
+      sendJson(response, 200, {
+        removedCount: result.changes,
+        users: listUsers.all().map(publicUser),
+      })
       return
     }
 
