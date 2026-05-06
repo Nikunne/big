@@ -639,6 +639,16 @@ function App() {
     }
   }
 
+  const copyWalletAddress = async (walletAddress: string) => {
+    if (!walletAddress) {
+      return
+    }
+
+    await navigator.clipboard.writeText(walletAddress)
+    setWalletMessage('Wallet address copied.')
+    window.setTimeout(() => setWalletMessage(''), 1400)
+  }
+
   const withdrawCoins = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
@@ -1547,7 +1557,17 @@ function App() {
             <div className="wallet-info">
               <p className="eyebrow">UncCoin wallet</p>
               <h2 id="wallet-title">Deposit address</h2>
-              <code>{activeCasinoUser.walletAddress || 'Wallet pending'}</code>
+              {activeCasinoUser.walletAddress ? (
+                <button
+                  className="wallet-address-button"
+                  type="button"
+                  onClick={() => copyWalletAddress(activeCasinoUser.walletAddress)}
+                >
+                  {activeCasinoUser.walletAddress}
+                </button>
+              ) : (
+                <code>Wallet pending</code>
+              )}
               <button className="game-button alt" type="button" onClick={syncWallet}>
                 Check deposits
               </button>
@@ -1585,7 +1605,17 @@ function App() {
             <div className="wallet-info">
               <p className="eyebrow">UncCoin wallet</p>
               <h2 id="wallet-view-title">Deposit address</h2>
-              <code>{activeCasinoUser.walletAddress || 'Wallet pending'}</code>
+              {activeCasinoUser.walletAddress ? (
+                <button
+                  className="wallet-address-button"
+                  type="button"
+                  onClick={() => copyWalletAddress(activeCasinoUser.walletAddress)}
+                >
+                  {activeCasinoUser.walletAddress}
+                </button>
+              ) : (
+                <code>Wallet pending</code>
+              )}
             </div>
           </section>
         )}

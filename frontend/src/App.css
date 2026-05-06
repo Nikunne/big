@@ -1114,8 +1114,11 @@ h1 {
 }
 
 .wallet-info code,
+.wallet-address-button,
 .admin-user code {
   display: block;
+  width: 100%;
+  box-sizing: border-box;
   padding: 8px;
   border: 3px solid #101010;
   background: #fff;
@@ -1124,6 +1127,15 @@ h1 {
   font-size: 12px;
   font-weight: 900;
   overflow-wrap: anywhere;
+}
+
+.wallet-address-button {
+  text-align: left;
+  cursor: pointer;
+}
+
+.wallet-address-button:hover {
+  background: #fff200;
 }
 
 .withdraw-form label {

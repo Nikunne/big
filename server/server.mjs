@@ -215,6 +215,7 @@ const uncCoinRequest = async (path, options = {}) => {
     ...options,
     headers: {
       Authorization: `Bearer ${uncCoinApiToken}`,
+      'X-API-Key': uncCoinApiToken,
       'Content-Type': 'application/json',
       ...(options.headers ?? {}),
     },
@@ -223,7 +224,10 @@ const uncCoinRequest = async (path, options = {}) => {
 
   if (!response.ok) {
     const detail = body.detail?.message ?? body.detail ?? body.error ?? response.statusText
-    throw new Error(typeof detail === 'string' ? detail : 'UncCoin API request failed.')
+    const message = typeof detail === 'string' ? detail : 'UncCoin API request failed.'
+    const error = new Error(`${response.status} ${message}`)
+    error.responseBody = body
+    throw error
   }
 
   return body
@@ -255,6 +259,9 @@ const createUncCoinWalletIfAvailable = async (username) => {
     return await createUncCoinWallet(username)
   } catch (error) {
     console.error(`Could not create UncCoin wallet for ${username}:`, error)
+    if (error?.responseBody) {
+      console.error('UncCoin wallet response body:', JSON.stringify(error.responseBody))
+    }
     return null
   }
 }
