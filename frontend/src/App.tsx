@@ -41,6 +41,13 @@ type FlaxScratchResponse = {
     finished: boolean
   }
 }
+type WithdrawResponse = {
+  user: UserRecord
+  transaction: {
+    ok?: boolean
+    status?: string
+  }
+}
 type GameResult = {
   title: string
   detail: string
@@ -673,7 +680,7 @@ function App() {
     upsertUser({ ...activeCasinoUser, coins: activeCasinoUser.coins - amount })
 
     try {
-      const { user } = await apiRequest<{ user: UserRecord }>(
+      const { user, transaction } = await apiRequest<WithdrawResponse>(
         `/api/users/${encodeURIComponent(activeCasinoUser.username)}/withdraw`,
         {
           method: 'POST',
@@ -682,7 +689,11 @@ function App() {
       )
       upsertUser(user)
       setWithdrawAmount('')
-      setWalletMessage('Withdrawal sent.')
+      setWalletMessage(
+        transaction.status === 'submitted'
+          ? 'Withdrawal submitted to the UncCoin network.'
+          : 'Withdrawal request accepted.',
+      )
     } catch (error) {
       upsertUser(previousUser)
       setWalletMessage(error instanceof Error ? error.message : 'Withdrawal failed.')
