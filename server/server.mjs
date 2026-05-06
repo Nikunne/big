@@ -27,7 +27,9 @@ if (existsSync(envPath)) {
 const db = new DatabaseSync(join(dataDir, 'users.sqlite'))
 const port = Number(process.env.PORT ?? 3001)
 const adminUsername = 'niklas'
-const uncCoinApiBaseUrl = String(process.env.UNC_WEB_API_BASE_URL ?? process.env.UNC_WEB_API_URL ?? '').replace(/\/$/, '')
+const uncCoinApiBaseUrl = String(process.env.UNC_WEB_API_BASE_URL ?? process.env.UNC_WEB_API_URL ?? '')
+  .replace(/\/$/, '')
+  .replace(/\/api$/i, '')
 const uncCoinApiToken = String(process.env.UNC_WEB_API_TOKEN ?? '')
 const uncCoinHouseAddress = String(process.env.UNC_BETTING_SHARK_ADDRESS ?? '')
 const uncDepositPollMs = Math.max(5000, Number(process.env.UNC_DEPOSIT_POLL_MS ?? 60000))
@@ -245,6 +247,15 @@ const createUncCoinWallet = async (username) => {
   }
 
   return walletAddress
+}
+
+const createUncCoinWalletIfAvailable = async (username) => {
+  try {
+    return await createUncCoinWallet(username)
+  } catch (error) {
+    console.error(`Could not create UncCoin wallet for ${username}:`, error)
+    return ''
+  }
 }
 
 const ensureUserWallet = async (username) => {
@@ -527,7 +538,7 @@ createServer(async (request, response) => {
         return
       }
 
-      const walletAddress = await createUncCoinWallet(username)
+      const walletAddress = await createUncCoinWalletIfAvailable(username)
       createUser.run(username, hashPassword(password), walletAddress, walletAddress ? Date.now() : 0)
       sendJson(response, 201, { user: publicUser(getUser.get(username)), token: createSession(username) })
       return
