@@ -11,30 +11,41 @@ mkdirSync(dataDir, { recursive: true })
 
 const db = new DatabaseSync(join(dataDir, 'users.sqlite'))
 const port = Number(process.env.PORT ?? 3001)
-const claimCooldownMs = 3000
 const adminUsername = 'niklas'
+const uncCoinApiBaseUrl = String(process.env.UNC_WEB_API_BASE_URL ?? process.env.UNC_WEB_API_URL ?? '').replace(/\/$/, '')
+const uncCoinApiToken = String(process.env.UNC_WEB_API_TOKEN ?? '')
+const uncCoinHouseAddress = String(process.env.UNC_BETTING_SHARK_ADDRESS ?? '')
+const uncDepositPollMs = Math.max(5000, Number(process.env.UNC_DEPOSIT_POLL_MS ?? 60000))
 const sessions = new Map()
 const activeFlaxTickets = new Map()
 const slotSymbols = ['BD', 'FYI', '1000', '!!!', '777']
 const defaultGameSettings = {
-  slotsCost: 100,
+  slotsCost: 160,
   slotsTriplePayout: 1200,
   slotsPairPayout: 250,
-  flipCost: 100,
+  flipCost: 110,
   flipPayout: 220,
-  highLowCost: 150,
+  highLowCost: 160,
   highLowPayout: 360,
-  diceCost: 200,
+  diceCost: 250,
   diceSixPayout: 900,
   diceHighPayout: 320,
-  luckyCost: 250,
+  luckyCost: 210,
   luckyPayout: 650,
-  flaxCost: 1000,
+  flaxCost: 2840,
   flaxPrizeSmall: 1000,
   flaxPrizeMedium: 2500,
   flaxPrizeLarge: 5000,
   flaxPrizeHuge: 10000,
   flaxPrizeJackpot: 100000,
+}
+const previousGameSettings = {
+  slotsCost: 100,
+  flipCost: 100,
+  highLowCost: 150,
+  diceCost: 200,
+  luckyCost: 250,
+  flaxCost: 1000,
 }
 
 db.exec(`
@@ -42,14 +53,40 @@ db.exec(`
     username TEXT PRIMARY KEY,
     password_hash TEXT NOT NULL,
     coins INTEGER NOT NULL DEFAULT 0,
-    last_claim_at INTEGER NOT NULL DEFAULT 0
+    last_claim_at INTEGER NOT NULL DEFAULT 0,
+    wallet_address TEXT UNIQUE,
+    wallet_created_at INTEGER NOT NULL DEFAULT 0,
+    last_wallet_check_at INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS game_settings (
     setting_key TEXT PRIMARY KEY,
     setting_value INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS wallet_deposits (
+    transaction_key TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    wallet_address TEXT NOT NULL,
+    from_address TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    block_id INTEGER NOT NULL DEFAULT 0,
+    timestamp TEXT NOT NULL DEFAULT '',
+    processed_at INTEGER NOT NULL,
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
   )
 `)
+
+const userColumns = new Set(db.prepare('PRAGMA table_info(users)').all().map((column) => column.name))
+if (!userColumns.has('wallet_address')) {
+  db.exec('ALTER TABLE users ADD COLUMN wallet_address TEXT')
+}
+if (!userColumns.has('wallet_created_at')) {
+  db.exec('ALTER TABLE users ADD COLUMN wallet_created_at INTEGER NOT NULL DEFAULT 0')
+}
+if (!userColumns.has('last_wallet_check_at')) {
+  db.exec('ALTER TABLE users ADD COLUMN last_wallet_check_at INTEGER NOT NULL DEFAULT 0')
+}
 
 const hashPassword = (password) => (
   createHash('sha256').update(password).digest('hex')
@@ -75,20 +112,24 @@ const publicUser = (row) => ({
   username: row.username,
   coins: row.coins,
   lastClaimAt: row.last_claim_at,
+  walletAddress: row.wallet_address ?? '',
+  walletCreatedAt: row.wallet_created_at,
+  lastWalletCheckAt: row.last_wallet_check_at,
 })
 
 const getUser = db.prepare(
-  'SELECT username, coins, last_claim_at FROM users WHERE username = ?',
+  'SELECT username, coins, last_claim_at, wallet_address, wallet_created_at, last_wallet_check_at FROM users WHERE username = ?',
 )
 const getUserWithPassword = db.prepare(
-  'SELECT username, password_hash, coins, last_claim_at FROM users WHERE username = ?',
+  'SELECT username, password_hash, coins, last_claim_at, wallet_address, wallet_created_at, last_wallet_check_at FROM users WHERE username = ?',
 )
 const listUsers = db.prepare(
-  'SELECT username, coins, last_claim_at FROM users ORDER BY username COLLATE NOCASE',
+  'SELECT username, coins, last_claim_at, wallet_address, wallet_created_at, last_wallet_check_at FROM users ORDER BY username COLLATE NOCASE',
 )
 const createUser = db.prepare(
-  'INSERT INTO users (username, password_hash, coins, last_claim_at) VALUES (?, ?, 0, 0)',
+  'INSERT INTO users (username, password_hash, coins, last_claim_at, wallet_address, wallet_created_at) VALUES (?, ?, 0, 0, ?, ?)',
 )
+const deleteUser = db.prepare('DELETE FROM users WHERE username = ?')
 const setPassword = db.prepare(
   'UPDATE users SET password_hash = ? WHERE username = ?',
 )
@@ -98,8 +139,14 @@ const setCoins = db.prepare(
 const adjustCoins = db.prepare(
   'UPDATE users SET coins = max(0, coins + ?) WHERE username = ?',
 )
-const setClaim = db.prepare(
-  'UPDATE users SET coins = coins + 1000, last_claim_at = ? WHERE username = ?',
+const debitCoins = db.prepare(
+  'UPDATE users SET coins = coins - ? WHERE username = ? AND coins >= ?',
+)
+const setUserWallet = db.prepare(
+  'UPDATE users SET wallet_address = ?, wallet_created_at = ? WHERE username = ?',
+)
+const touchUserWalletCheck = db.prepare(
+  'UPDATE users SET last_wallet_check_at = ? WHERE username = ?',
 )
 const listGameSettings = db.prepare(
   'SELECT setting_key, setting_value FROM game_settings',
@@ -110,9 +157,26 @@ const createGameSetting = db.prepare(
 const setGameSetting = db.prepare(
   'INSERT INTO game_settings (setting_key, setting_value) VALUES (?, ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value',
 )
+const getGameSetting = db.prepare(
+  'SELECT setting_value FROM game_settings WHERE setting_key = ?',
+)
+const listWalletUsers = db.prepare(
+  "SELECT username, wallet_address FROM users WHERE wallet_address IS NOT NULL AND wallet_address != ''",
+)
+const createWalletDeposit = db.prepare(
+  'INSERT OR IGNORE INTO wallet_deposits (transaction_key, username, wallet_address, from_address, amount, block_id, timestamp, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+)
 
 for (const [setting, value] of Object.entries(defaultGameSettings)) {
   createGameSetting.run(setting, value)
+}
+
+for (const [setting, oldValue] of Object.entries(previousGameSettings)) {
+  const storedSetting = getGameSetting.get(setting)
+
+  if (storedSetting?.setting_value === oldValue) {
+    setGameSetting.run(setting, defaultGameSettings[setting])
+  }
 }
 
 const getGameSettings = () => ({
@@ -121,6 +185,133 @@ const getGameSettings = () => ({
     listGameSettings.all().map((row) => [row.setting_key, normalizeSettingValue(row.setting_value)]),
   ),
 })
+
+const hasUncCoinConfig = () => Boolean(uncCoinApiBaseUrl && uncCoinApiToken)
+
+const uncCoinRequest = async (path, options = {}) => {
+  if (!hasUncCoinConfig()) {
+    throw new Error('UncCoin API is not configured.')
+  }
+
+  const response = await fetch(`${uncCoinApiBaseUrl}${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${uncCoinApiToken}`,
+      'Content-Type': 'application/json',
+      ...(options.headers ?? {}),
+    },
+  })
+  const body = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    const detail = body.detail?.message ?? body.detail ?? body.error ?? response.statusText
+    throw new Error(typeof detail === 'string' ? detail : 'UncCoin API request failed.')
+  }
+
+  return body
+}
+
+const createUncCoinWallet = async (username) => {
+  if (!hasUncCoinConfig()) {
+    return ''
+  }
+
+  const body = await uncCoinRequest('/api/wallets', {
+    method: 'POST',
+    body: JSON.stringify({
+      wallet_name: `bigdick-fyi-${username}`,
+      external_user_id: username,
+    }),
+  })
+  const walletAddress = String(body.wallet?.wallet_address ?? '')
+
+  if (!walletAddress) {
+    throw new Error('UncCoin API did not return a wallet address.')
+  }
+
+  return walletAddress
+}
+
+const ensureUserWallet = async (username) => {
+  const user = getUser.get(username)
+
+  if (!user || user.wallet_address || !hasUncCoinConfig()) {
+    return user?.wallet_address ?? ''
+  }
+
+  const walletAddress = await createUncCoinWallet(username)
+  setUserWallet.run(walletAddress, Date.now(), username)
+  return walletAddress
+}
+
+const normalizeIncomingAmount = (value) => {
+  const amount = Math.floor(Number(value) || 0)
+  return amount > 0 ? amount : 0
+}
+
+const syncWalletDepositsForUser = async (user) => {
+  const walletAddress = String(user.wallet_address ?? '')
+
+  if (!walletAddress || !hasUncCoinConfig()) {
+    return { credited: 0, deposits: 0 }
+  }
+
+  const body = await uncCoinRequest(`/api/wallets/${encodeURIComponent(walletAddress)}/incoming`)
+  const incoming = Array.isArray(body.incoming) ? body.incoming : []
+  let credited = 0
+  let deposits = 0
+
+  db.exec('BEGIN')
+  try {
+    for (const transaction of incoming) {
+      const transactionKey = String(transaction.transaction_key ?? '')
+      const amount = normalizeIncomingAmount(transaction.amount)
+
+      if (!transactionKey || amount <= 0) {
+        continue
+      }
+
+      const result = createWalletDeposit.run(
+        transactionKey,
+        user.username,
+        walletAddress,
+        String(transaction.from_address ?? ''),
+        amount,
+        Math.floor(Number(transaction.block_id) || 0),
+        String(transaction.timestamp ?? ''),
+        Date.now(),
+      )
+
+      if (result.changes > 0) {
+        adjustCoins.run(amount, user.username)
+        credited += amount
+        deposits += 1
+      }
+    }
+
+    touchUserWalletCheck.run(Date.now(), user.username)
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+
+  return { credited, deposits }
+}
+
+const syncAllWalletDeposits = async () => {
+  if (!hasUncCoinConfig()) {
+    return
+  }
+
+  for (const user of listWalletUsers.all()) {
+    try {
+      await syncWalletDepositsForUser(user)
+    } catch (error) {
+      console.error(`Wallet deposit sync failed for ${user.username}:`, error)
+    }
+  }
+}
 
 const pickRandomCoinFace = () => (Math.random() > 0.5 ? 'BD' : 'FYI')
 const pickRandomLuckyNumber = () => Math.ceil(Math.random() * 3)
@@ -229,7 +420,7 @@ const runCoinGame = (username, cost, play) => {
 const sendJson = (response, status, body) => {
   response.writeHead(status, {
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Origin': process.env.CORS_ORIGIN ?? '*',
     'Content-Type': 'application/json',
   })
@@ -273,7 +464,8 @@ createServer(async (request, response) => {
         return
       }
 
-      sendJson(response, 200, { user: publicUser(user) })
+      await ensureUserWallet(username)
+      sendJson(response, 200, { user: publicUser(getUser.get(username)) })
       return
     }
 
@@ -320,7 +512,8 @@ createServer(async (request, response) => {
         return
       }
 
-      createUser.run(username, hashPassword(password))
+      const walletAddress = await createUncCoinWallet(username)
+      createUser.run(username, hashPassword(password), walletAddress, walletAddress ? Date.now() : 0)
       sendJson(response, 201, { user: publicUser(getUser.get(username)), token: createSession(username) })
       return
     }
@@ -336,7 +529,8 @@ createServer(async (request, response) => {
         return
       }
 
-      sendJson(response, 200, { user: publicUser(user), token: createSession(username) })
+      await ensureUserWallet(username)
+      sendJson(response, 200, { user: publicUser(getUser.get(username)), token: createSession(username) })
       return
     }
 
@@ -348,6 +542,27 @@ createServer(async (request, response) => {
 
       if (!getUser.get(username)) {
         sendJson(response, 404, { error: 'User not found.' })
+        return
+      }
+
+      if (request.method === 'DELETE' && !action) {
+        if (getSessionUsername(request) !== adminUsername) {
+          sendJson(response, 403, { error: 'Admin session required.' })
+          return
+        }
+
+        if (username === adminUsername) {
+          sendJson(response, 400, { error: 'The admin account cannot be deleted.' })
+          return
+        }
+
+        deleteUser.run(username)
+        for (const [token, sessionUsername] of sessions.entries()) {
+          if (sessionUsername === username) {
+            sessions.delete(token)
+          }
+        }
+        sendJson(response, 200, { ok: true })
         return
       }
 
@@ -374,6 +589,78 @@ createServer(async (request, response) => {
         const delta = Math.floor(Number(body.delta) || 0)
         adjustCoins.run(delta, username)
         sendJson(response, 200, { user: publicUser(getUser.get(username)) })
+        return
+      }
+
+      if (request.method === 'POST' && action === 'sync-wallet') {
+        const sessionUsername = getSessionUsername(request)
+
+        if (sessionUsername !== username && sessionUsername !== adminUsername) {
+          sendJson(response, 403, { error: 'You can only sync your own wallet.' })
+          return
+        }
+
+        await ensureUserWallet(username)
+        const result = await syncWalletDepositsForUser(getUser.get(username))
+        sendJson(response, 200, { ...result, user: publicUser(getUser.get(username)) })
+        return
+      }
+
+      if (request.method === 'POST' && action === 'withdraw') {
+        if (getSessionUsername(request) !== username) {
+          sendJson(response, 403, { error: 'You can only withdraw from your own account.' })
+          return
+        }
+
+        if (!hasUncCoinConfig() || !uncCoinHouseAddress) {
+          sendJson(response, 503, { error: 'UncCoin withdrawal is not configured.' })
+          return
+        }
+
+        const body = await readJson(request)
+        const receiverAddress = String(body.receiverAddress ?? '').trim()
+        const amount = Math.floor(Number(body.amount) || 0)
+        const fee = Math.max(0, Math.floor(Number(body.fee) || 0))
+
+        if (!receiverAddress) {
+          sendJson(response, 400, { error: 'Receiver wallet address is required.' })
+          return
+        }
+
+        if (amount <= 0) {
+          sendJson(response, 400, { error: 'Withdrawal amount must be positive.' })
+          return
+        }
+
+        const debitResult = debitCoins.run(amount, username, amount)
+
+        if (debitResult.changes === 0) {
+          sendJson(response, 409, { error: 'Insufficient balance.' })
+          return
+        }
+
+        try {
+          const transaction = await uncCoinRequest('/api/transactions', {
+            method: 'POST',
+            body: JSON.stringify({
+              sender_address: uncCoinHouseAddress,
+              receiver_address: receiverAddress,
+              amount: String(amount),
+              fee: String(fee),
+            }),
+          })
+          sendJson(response, 200, {
+            ok: true,
+            transaction,
+            user: publicUser(getUser.get(username)),
+          })
+        } catch (error) {
+          adjustCoins.run(amount, username)
+          sendJson(response, 502, {
+            error: error instanceof Error ? error.message : 'Withdrawal failed.',
+            user: publicUser(getUser.get(username)),
+          })
+        }
         return
       }
 
@@ -526,28 +813,6 @@ createServer(async (request, response) => {
         return
       }
 
-      if (request.method === 'POST' && action === 'claim') {
-        if (getSessionUsername(request) !== username) {
-          sendJson(response, 403, { error: 'You can only claim coins for your own account.' })
-          return
-        }
-
-        const user = getUser.get(username)
-        const now = Date.now()
-
-        if (now - user.last_claim_at < claimCooldownMs) {
-          sendJson(response, 429, {
-            error: 'Claim cooldown active.',
-            user: publicUser(user),
-          })
-          return
-        }
-
-        setClaim.run(now, username)
-        sendJson(response, 200, { user: publicUser(getUser.get(username)) })
-        return
-      }
-
       if (request.method === 'POST' && action === 'password') {
         if (getSessionUsername(request) !== username) {
           sendJson(response, 403, { error: 'You can only change your own password.' })
@@ -588,3 +853,10 @@ createServer(async (request, response) => {
 }).listen(port, () => {
   console.log(`User API listening on http://localhost:${port}`)
 })
+
+if (hasUncCoinConfig()) {
+  syncAllWalletDeposits().catch((error) => console.error('Wallet deposit sync failed:', error))
+  setInterval(() => {
+    syncAllWalletDeposits().catch((error) => console.error('Wallet deposit sync failed:', error))
+  }, uncDepositPollMs)
+}

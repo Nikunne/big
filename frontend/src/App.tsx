@@ -6,6 +6,9 @@ type UserRecord = {
   username: string
   coins: number
   lastClaimAt: number
+  walletAddress: string
+  walletCreatedAt: number
+  lastWalletCheckAt: number
 }
 
 type AuthMode = 'login' | 'signup'
@@ -76,7 +79,6 @@ type GameSettings = {
 
 const SESSION_STORAGE_KEY = 'bigdick-fyi-current-user'
 const SESSION_TOKEN_STORAGE_KEY = 'bigdick-fyi-session-token'
-const CLAIM_COOLDOWN_MS = 3000
 const FLAX_AUTOREVEAL_MS = 500
 const EMAIL_ADDRESS = 'contact@bigdick.fyi'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -84,19 +86,19 @@ const SLOT_SYMBOLS = ['BD', 'FYI', '1000', '!!!', '777']
 const SLOT_REEL_HEIGHT = 96
 const SLOT_SPIN_DURATION_MS = 1900
 const DEFAULT_GAME_SETTINGS: GameSettings = {
-  slotsCost: 100,
+  slotsCost: 160,
   slotsTriplePayout: 1200,
   slotsPairPayout: 250,
-  flipCost: 100,
+  flipCost: 110,
   flipPayout: 220,
-  highLowCost: 150,
+  highLowCost: 160,
   highLowPayout: 360,
-  diceCost: 200,
+  diceCost: 250,
   diceSixPayout: 900,
   diceHighPayout: 320,
-  luckyCost: 250,
+  luckyCost: 210,
   luckyPayout: 650,
-  flaxCost: 1000,
+  flaxCost: 2840,
   flaxPrizeSmall: 1000,
   flaxPrizeMedium: 2500,
   flaxPrizeLarge: 5000,
@@ -256,8 +258,10 @@ function App() {
   const [currentPassword, setCurrentPassword] = useState('')
   const [nextPassword, setNextPassword] = useState('')
   const [passwordMessage, setPasswordMessage] = useState('')
+  const [walletMessage, setWalletMessage] = useState('')
+  const [withdrawAddress, setWithdrawAddress] = useState('')
+  const [withdrawAmount, setWithdrawAmount] = useState('')
   const [copyMessage, setCopyMessage] = useState('')
-  const [now, setNow] = useState(() => Date.now())
   const [gameSettings, setGameSettings] = useState<GameSettings>(DEFAULT_GAME_SETTINGS)
   const [showPricePanel, setShowPricePanel] = useState(false)
   const [slotReels, setSlotReels] = useState(['BD', 'FYI', '777'])
@@ -330,10 +334,6 @@ function App() {
   const routedUsername = routePath.match(/^\/users\/([^/]+)\/?$/)?.[1] ?? ''
   const routedUser = users.find((user) => user.username === decodeURIComponent(routedUsername))
   const activeCasinoUser = routedUser ?? currentUser
-  const claimWaitMs = activeCasinoUser
-    ? Math.max(0, CLAIM_COOLDOWN_MS - (now - activeCasinoUser.lastClaimAt))
-    : CLAIM_COOLDOWN_MS
-  const canClaimCoins = claimWaitMs === 0
   const topUsers = [...users]
     .sort((firstUser, secondUser) => (
       secondUser.coins - firstUser.coins
@@ -430,11 +430,6 @@ function App() {
     return () => {
       isMounted = false
     }
-  }, [])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 250)
-    return () => window.clearInterval(timer)
   }, [])
 
   useEffect(() => {
@@ -565,26 +560,6 @@ function App() {
     }
   }
 
-  const claimCoins = async () => {
-    if (!activeCasinoUser || !canClaimCoins || activeCasinoUser.username !== currentUsername) {
-      return
-    }
-
-    try {
-      const { user } = await apiRequest<{ user: UserRecord }>(
-        `/api/users/${encodeURIComponent(activeCasinoUser.username)}/claim`,
-        { method: 'POST' },
-      )
-      upsertUser(user)
-      setNow(Date.now())
-    } catch (error) {
-      setGameResult({
-        title: 'Claim failed',
-        detail: error instanceof Error ? error.message : 'Could not claim coins.',
-      })
-    }
-  }
-
   const updateCoins = async (username: string, coinDelta: number) => {
     setUsers((storedUsers) => {
       return storedUsers.map((user) => {
@@ -642,6 +617,92 @@ function App() {
     } catch {
       const { users: loadedUsers } = await apiRequest<{ users: UserRecord[] }>('/api/users')
       setUsers(loadedUsers)
+    }
+  }
+
+  const syncWallet = async () => {
+    if (!activeCasinoUser || activeCasinoUser.username !== currentUsername) {
+      return
+    }
+
+    setWalletMessage('Checking wallet.')
+
+    try {
+      const { credited, user } = await apiRequest<{ credited: number; user: UserRecord }>(
+        `/api/users/${encodeURIComponent(activeCasinoUser.username)}/sync-wallet`,
+        { method: 'POST' },
+      )
+      upsertUser(user)
+      setWalletMessage(credited > 0 ? `Credited ${credited.toLocaleString()} coins.` : 'No new deposits.')
+    } catch (error) {
+      setWalletMessage(error instanceof Error ? error.message : 'Could not check wallet.')
+    }
+  }
+
+  const withdrawCoins = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!activeCasinoUser || activeCasinoUser.username !== currentUsername) {
+      return
+    }
+
+    const amount = Math.floor(Number(withdrawAmount) || 0)
+
+    if (amount <= 0) {
+      setWalletMessage('Withdrawal amount must be positive.')
+      return
+    }
+
+    if (amount > activeCasinoUser.coins) {
+      setWalletMessage('Insufficient balance.')
+      return
+    }
+
+    const previousUser = activeCasinoUser
+    setWalletMessage('Sending withdrawal.')
+    upsertUser({ ...activeCasinoUser, coins: activeCasinoUser.coins - amount })
+
+    try {
+      const { user } = await apiRequest<{ user: UserRecord }>(
+        `/api/users/${encodeURIComponent(activeCasinoUser.username)}/withdraw`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ receiverAddress: withdrawAddress, amount }),
+        },
+      )
+      upsertUser(user)
+      setWithdrawAmount('')
+      setWalletMessage('Withdrawal sent.')
+    } catch (error) {
+      upsertUser(previousUser)
+      setWalletMessage(error instanceof Error ? error.message : 'Withdrawal failed.')
+    }
+  }
+
+  const deleteUserAccount = async (username: string) => {
+    if (!window.confirm(`Delete ${username}? This cannot be undone.`)) {
+      return
+    }
+
+    try {
+      await apiRequest<{ ok: true }>(`/api/users/${encodeURIComponent(username)}`, {
+        method: 'DELETE',
+      })
+      setUsers((storedUsers) => storedUsers.filter((user) => user.username !== username))
+      setAdminCoinInputs((inputs) => {
+        const nextInputs = { ...inputs }
+        delete nextInputs[username]
+        return nextInputs
+      })
+
+      if (routePath === `/users/${username}`) {
+        goToPath('/')
+      }
+    } catch (error) {
+      setGameResult({
+        title: 'Delete rejected',
+        detail: error instanceof Error ? error.message : 'Could not delete user.',
+      })
     }
   }
 
@@ -1478,20 +1539,56 @@ function App() {
             <span>Balance</span>
             <strong>{activeCasinoUser.coins.toLocaleString()}</strong>
             <em>coins</em>
-            <button
-              className="claim-button"
-              type="button"
-              disabled={!isOwnPage || !canClaimCoins}
-              onClick={claimCoins}
-            >
-              {isOwnPage
-                ? canClaimCoins
-                  ? 'Get free 1000 coins'
-                  : `Wait ${(claimWaitMs / 1000).toFixed(1)}s`
-                : 'View only'}
-            </button>
           </div>
         </section>
+
+        {isOwnPage && (
+          <section className="wallet-panel" aria-labelledby="wallet-title">
+            <div className="wallet-info">
+              <p className="eyebrow">UncCoin wallet</p>
+              <h2 id="wallet-title">Deposit address</h2>
+              <code>{activeCasinoUser.walletAddress || 'Wallet pending'}</code>
+              <button className="game-button alt" type="button" onClick={syncWallet}>
+                Check deposits
+              </button>
+            </div>
+            <form className="withdraw-form" onSubmit={withdrawCoins}>
+              <label>
+                Withdrawal address
+                <input
+                  value={withdrawAddress}
+                  onChange={(event) => setWithdrawAddress(event.target.value)}
+                  placeholder="UncCoin wallet address"
+                />
+              </label>
+              <label>
+                Amount
+                <input
+                  inputMode="numeric"
+                  min="1"
+                  type="number"
+                  value={withdrawAmount}
+                  onChange={(event) => setWithdrawAmount(event.target.value)}
+                  placeholder="0"
+                />
+              </label>
+              <button className="game-button" type="submit">
+                Withdraw
+              </button>
+              {walletMessage && <p className="form-message">{walletMessage}</p>}
+            </form>
+          </section>
+        )}
+
+        {!isOwnPage && (
+          <section className="wallet-panel view-wallet-panel" aria-labelledby="wallet-view-title">
+            <div className="wallet-info">
+              <p className="eyebrow">UncCoin wallet</p>
+              <h2 id="wallet-view-title">Deposit address</h2>
+              <code>{activeCasinoUser.walletAddress || 'Wallet pending'}</code>
+            </div>
+          </section>
+        )}
 
         {canAdminUsers && showPricePanel && renderPricePanel()}
 
@@ -1740,6 +1837,7 @@ function App() {
                     <div>
                       <strong>{user.username}</strong>
                       <span>{user.coins.toLocaleString()} coins</span>
+                      <code>{user.walletAddress || 'No wallet'}</code>
                     </div>
                     <label>
                       Set coins
@@ -1774,6 +1872,14 @@ function App() {
                         onClick={() => setUserCoins(user.username, Number(inputValue) || 0)}
                       >
                         Save
+                      </button>
+                      <button
+                        className="danger"
+                        type="button"
+                        disabled={user.username === 'niklas'}
+                        onClick={() => deleteUserAccount(user.username)}
+                      >
+                        Delete
                       </button>
                     </div>
                   </article>
