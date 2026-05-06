@@ -275,6 +275,7 @@ function App() {
     detail: 'Grab coins, pick a game, press a button.',
   })
   const [adminCoinInputs, setAdminCoinInputs] = useState<Record<string, string>>({})
+  const [hideZeroBalanceUsers, setHideZeroBalanceUsers] = useState(false)
   const [floatingDeltas, setFloatingDeltas] = useState<FloatingDelta[]>([])
   const [autoplayGames, setAutoplayGames] = useState<Record<GameName, boolean>>({
     slots: false,
@@ -308,7 +309,7 @@ function App() {
     lucky: undefined,
     flax: undefined,
   })
-  const removeZeroBalanceUsersRef = useRef<() => void>(() => {})
+  const toggleZeroBalanceUsersRef = useRef<() => void>(() => {})
   const gameLocks = useRef<Record<GameName, boolean>>({
     slots: false,
     flip: false,
@@ -469,7 +470,7 @@ function App() {
       }
 
       if (isPlainKey && !isTyping && event.key.toLowerCase() === 'a' && currentUsernameRef.current === 'niklas') {
-        removeZeroBalanceUsersRef.current()
+        toggleZeroBalanceUsersRef.current()
       }
 
       if (isPlainKey && !isTyping && event.key.toLowerCase() === 'c' && currentUsernameRef.current) {
@@ -648,36 +649,13 @@ function App() {
     updateCoins(username, coinDelta)
   }
 
-  const removeZeroBalanceUsers = useCallback(async () => {
-    try {
-      const { users: loadedUsers, removedCount } = await apiRequest<{
-        users: UserRecord[]
-        removedCount: number
-      }>('/api/users/zero-balance', { method: 'DELETE' })
-
-      setUsers(loadedUsers)
-      setAdminCoinInputs((inputs) => Object.fromEntries(
-        Object.entries(inputs).filter(([username]) =>
-          loadedUsers.some((user) => user.username === username),
-        ),
-      ))
-      setGameResult({
-        title: 'Admin cleanup',
-        detail: `Removed ${removedCount} zero-balance ${removedCount === 1 ? 'user' : 'users'}.`,
-      })
-    } catch (error) {
-      setGameResult({
-        title: 'Cleanup failed',
-        detail: error instanceof Error ? error.message : 'Could not remove zero-balance users.',
-      })
-    }
+  const toggleZeroBalanceUsers = useCallback(() => {
+    setHideZeroBalanceUsers((isHidden) => !isHidden)
   }, [])
 
   useEffect(() => {
-    removeZeroBalanceUsersRef.current = () => {
-      void removeZeroBalanceUsers()
-    }
-  }, [removeZeroBalanceUsers])
+    toggleZeroBalanceUsersRef.current = toggleZeroBalanceUsers
+  }, [toggleZeroBalanceUsers])
 
   const emitFloatingDelta = (game: GameName, amount: number, delay = 0) => {
     window.setTimeout(() => {
@@ -1742,16 +1720,19 @@ function App() {
                 <button
                   className="admin-cleanup-button"
                   type="button"
-                  onClick={() => removeZeroBalanceUsers()}
+                  aria-pressed={hideZeroBalanceUsers}
+                  onClick={toggleZeroBalanceUsers}
                 >
-                  Remove 0-coin users
+                  {hideZeroBalanceUsers ? 'Show 0-coin users' : 'Hide 0-coin users'}
                 </button>
               </div>
               <h2 id="admin-title">Admin panel</h2>
             </div>
 
             <div className="admin-users">
-              {users.map((user) => {
+              {users
+                .filter((user) => !hideZeroBalanceUsers || user.coins > 0)
+                .map((user) => {
                 const inputValue = adminCoinInputs[user.username] ?? String(user.coins)
 
                 return (
