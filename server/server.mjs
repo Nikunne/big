@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,7 +7,22 @@ import { DatabaseSync } from 'node:sqlite'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const dataDir = join(__dirname, '..', 'data')
+const envPath = join(__dirname, '..', '.env')
 mkdirSync(dataDir, { recursive: true })
+
+if (existsSync(envPath)) {
+  const envText = readFileSync(envPath, 'utf8')
+
+  for (const line of envText.split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/)
+
+    if (!match || process.env[match[1]] !== undefined) {
+      continue
+    }
+
+    process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, '')
+  }
+}
 
 const db = new DatabaseSync(join(dataDir, 'users.sqlite'))
 const port = Number(process.env.PORT ?? 3001)

@@ -1,3 +1,4 @@
 data/
+.env
 frontend/dist/
 frontend/node_modules/
