@@ -268,6 +268,8 @@ function App() {
   const [walletMessage, setWalletMessage] = useState('')
   const [withdrawAddress, setWithdrawAddress] = useState('')
   const [withdrawAmount, setWithdrawAmount] = useState('')
+  const [showWalletHelp, setShowWalletHelp] = useState(false)
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false)
   const [copyMessage, setCopyMessage] = useState('')
   const [gameSettings, setGameSettings] = useState<GameSettings>(DEFAULT_GAME_SETTINGS)
   const [showPricePanel, setShowPricePanel] = useState(false)
@@ -459,6 +461,8 @@ function App() {
       if (event.key === 'Escape') {
         setActiveHelp('')
         setShowPasswordPanel(false)
+        setShowWalletHelp(false)
+        setShowWithdrawConfirm(false)
       }
 
       const target = event.target
@@ -656,26 +660,50 @@ function App() {
     window.setTimeout(() => setWalletMessage(''), 1400)
   }
 
-  const withdrawCoins = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const getWithdrawalAmount = () => Math.floor(Number(withdrawAmount) || 0)
 
+  const validateWithdrawal = () => {
     if (!activeCasinoUser || activeCasinoUser.username !== currentUsername) {
-      return
+      return false
     }
 
-    const amount = Math.floor(Number(withdrawAmount) || 0)
+    if (!withdrawAddress.trim()) {
+      setWalletMessage('Withdrawal address is required.')
+      return false
+    }
+
+    const amount = getWithdrawalAmount()
 
     if (amount <= 0) {
       setWalletMessage('Withdrawal amount must be positive.')
-      return
+      return false
     }
 
     if (amount > activeCasinoUser.coins) {
       setWalletMessage('Insufficient balance.')
+      return false
+    }
+
+    return true
+  }
+
+  const withdrawCoins = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (validateWithdrawal()) {
+      setShowWithdrawConfirm(true)
+    }
+  }
+
+  const confirmWithdrawCoins = async () => {
+    if (!activeCasinoUser || activeCasinoUser.username !== currentUsername || !validateWithdrawal()) {
+      setShowWithdrawConfirm(false)
       return
     }
 
+    const amount = getWithdrawalAmount()
     const previousUser = activeCasinoUser
+    setShowWithdrawConfirm(false)
     setWalletMessage('Sending withdrawal.')
     upsertUser({ ...activeCasinoUser, coins: activeCasinoUser.coins - amount })
 
@@ -795,6 +823,17 @@ function App() {
       type="button"
       aria-label={`Show ${GAME_TITLES[game]} rules`}
       onClick={() => setActiveHelp(game)}
+    >
+      ?
+    </button>
+  )
+
+  const renderWalletHelpButton = () => (
+    <button
+      className="game-help-button wallet-help-button"
+      type="button"
+      aria-label="Show UncCoin wallet help"
+      onClick={() => setShowWalletHelp(true)}
     >
       ?
     </button>
@@ -1537,6 +1576,11 @@ function App() {
             <button type="button" onClick={() => goToPath('/')}>
               Home
             </button>
+            {!isOwnPage && currentUsername && (
+              <button type="button" onClick={() => goToPath(`/users/${currentUsername}`)}>
+                My page
+              </button>
+            )}
             {isOwnPage && (
               <button type="button" onClick={handleLogout}>
                 Log out
@@ -1549,11 +1593,6 @@ function App() {
           <div className="casino-copy">
             <p className="eyebrow">{isViewOnly ? 'View only' : 'User casino'}</p>
             <h1 id="casino-title">{activeCasinoUser.username}</h1>
-            <p className="lede">
-              {isViewOnly
-                ? 'Viewing this account only. Games and coin actions are hidden.'
-                : 'Fake coins, real button, zero financial consequences.'}
-            </p>
           </div>
 
           <div className="coin-vault">
@@ -1567,7 +1606,10 @@ function App() {
           <section className="wallet-panel" aria-labelledby="wallet-title">
             <div className="wallet-info">
               <p className="eyebrow">UncCoin wallet</p>
-              <h2 id="wallet-title">Deposit address</h2>
+              <div className="wallet-heading">
+                <h2 id="wallet-title">Deposit address</h2>
+                {renderWalletHelpButton()}
+              </div>
               {activeCasinoUser.walletAddress ? (
                 <button
                   className="wallet-address-button"
@@ -1615,7 +1657,10 @@ function App() {
           <section className="wallet-panel view-wallet-panel" aria-labelledby="wallet-view-title">
             <div className="wallet-info">
               <p className="eyebrow">UncCoin wallet</p>
-              <h2 id="wallet-view-title">Deposit address</h2>
+              <div className="wallet-heading">
+                <h2 id="wallet-view-title">Deposit address</h2>
+                {renderWalletHelpButton()}
+              </div>
               {activeCasinoUser.walletAddress ? (
                 <button
                   className="wallet-address-button"
@@ -1844,6 +1889,64 @@ function App() {
               <p className="eyebrow">Game rules</p>
               <h2 id="help-title">{GAME_TITLES[activeHelp]}</h2>
               <p>{getGameHelpDescription(activeHelp)}</p>
+            </section>
+          </div>
+        )}
+
+        {showWalletHelp && (
+          <div className="help-overlay" role="presentation" onClick={() => setShowWalletHelp(false)}>
+            <section
+              className="help-dialog wallet-help-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="wallet-help-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <p className="eyebrow">UncCoin wallet</p>
+              <h2 id="wallet-help-title">Deposits</h2>
+              <p>
+                Deposits need to be done in UncCoin from{' '}
+                <a href="https://UncCoin.no" target="_blank" rel="noreferrer">
+                  UncCoin.no
+                </a>{' '}
+                to the specified address. Coins can be withdrawn as UncCoins to any UncCoin
+                wallet-address.
+              </p>
+            </section>
+          </div>
+        )}
+
+        {showWithdrawConfirm && activeCasinoUser && (
+          <div
+            className="confirm-overlay"
+            role="presentation"
+            onClick={() => setShowWithdrawConfirm(false)}
+          >
+            <section
+              className="confirm-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="withdraw-confirm-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <p className="eyebrow">Confirm withdrawal</p>
+              <h2 id="withdraw-confirm-title">Are you sure?</h2>
+              <p>
+                Withdraw {getWithdrawalAmount().toLocaleString()} coins as UncCoins to{' '}
+                <strong>{withdrawAddress}</strong>.
+              </p>
+              <div className="confirm-actions">
+                <button className="game-button" type="button" onClick={confirmWithdrawCoins}>
+                  Withdraw
+                </button>
+                <button
+                  className="game-button alt"
+                  type="button"
+                  onClick={() => setShowWithdrawConfirm(false)}
+                >
+                  Cancel
+                </button>
+              </div>
             </section>
           </div>
         )}
