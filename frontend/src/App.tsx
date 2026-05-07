@@ -106,7 +106,7 @@ const ROULETTE_NUMBER_COUNT = 37
 const ROULETTE_HOUSE_RETURN_BPS = 9700
 const ROULETTE_MAX_COVERED_NUMBERS = 36
 const ROULETTE_SPIN_DURATION_MS = 2200
-const ROULETTE_RED_NUMBERS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36])
+const ROULETTE_WHITE_NUMBERS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36])
 const ROULETTE_CHOICES = Array.from({ length: ROULETTE_NUMBER_COUNT }, (_, number) => number)
 const ROULETTE_WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
 const DEFAULT_GAME_SETTINGS: GameSettings = {
@@ -1985,10 +1985,11 @@ function App() {
     const isOwnPage = Boolean(currentUser)
     const coveredPercent = ((sortedRouletteNumbers.length / ROULETTE_NUMBER_COUNT) * 100).toFixed(1)
     const rouletteRollIndex = Math.max(0, ROULETTE_WHEEL_ORDER.indexOf(rouletteRoll))
+    const rouletteSpinEnd = 1440 + rouletteSpin * 137
     const roulettePocketAngle = (rouletteRollIndex * 360) / ROULETTE_NUMBER_COUNT
     const roulettePresets = [
-      { label: 'Red', numbers: [...ROULETTE_RED_NUMBERS] },
-      { label: 'Black', numbers: ROULETTE_CHOICES.filter((number) => number > 0 && !ROULETTE_RED_NUMBERS.has(number)) },
+      { label: 'White', numbers: [...ROULETTE_WHITE_NUMBERS] },
+      { label: 'Black', numbers: ROULETTE_CHOICES.filter((number) => number > 0 && !ROULETTE_WHITE_NUMBERS.has(number)) },
       { label: 'Odd', numbers: ROULETTE_CHOICES.filter((number) => number % 2 === 1) },
       { label: 'Even', numbers: ROULETTE_CHOICES.filter((number) => number > 0 && number % 2 === 0) },
       { label: '1-18', numbers: ROULETTE_CHOICES.filter((number) => number >= 1 && number <= 18) },
@@ -2062,14 +2063,14 @@ function App() {
             className="roulette-wheel"
             aria-live="polite"
             style={{
-              '--roulette-spin-end': `${1440 + rouletteSpin * 137}deg`,
-              '--roulette-ball-end': `${roulettePocketAngle + 1440}deg`,
+              '--roulette-spin-end': `${rouletteSpinEnd}deg`,
+              '--roulette-ball-end': `${rouletteSpinEnd + roulettePocketAngle}deg`,
             } as CSSProperties}
           >
             <div className="roulette-pocket-ring" aria-hidden="true">
               {ROULETTE_WHEEL_ORDER.map((number, index) => (
                 <span
-                  className={`${number === 0 ? 'is-zero' : index % 2 === 0 ? 'is-dark' : 'is-light'} ${number === rouletteRoll && !animatingGames.roulette ? 'is-result' : ''}`}
+                  className={`${number === 0 ? 'is-zero' : ROULETTE_WHITE_NUMBERS.has(number) ? 'is-white' : 'is-black'} ${number === rouletteRoll && !animatingGames.roulette ? 'is-result' : ''}`}
                   key={number}
                   style={{ '--pocket-angle': `${(index * 360) / ROULETTE_NUMBER_COUNT}deg` } as CSSProperties}
                 >
@@ -2078,7 +2079,7 @@ function App() {
               ))}
             </div>
             <i className="roulette-ball" aria-hidden="true"></i>
-            <strong className={ROULETTE_RED_NUMBERS.has(rouletteRoll) ? 'is-red' : rouletteRoll === 0 ? 'is-zero' : 'is-black'}>
+            <strong className={ROULETTE_WHITE_NUMBERS.has(rouletteRoll) ? 'is-white' : rouletteRoll === 0 ? 'is-zero' : 'is-black'}>
               {animatingGames.roulette ? '?' : rouletteRoll}
             </strong>
           </div>
@@ -2130,7 +2131,7 @@ function App() {
             <div className="roulette-numbers" aria-label="Roulette numbers">
               {ROULETTE_CHOICES.map((number) => (
                 <button
-                  className={`${rouletteNumbers.includes(number) ? 'is-selected' : ''} ${ROULETTE_RED_NUMBERS.has(number) ? 'is-red' : number === 0 ? 'is-zero' : 'is-black'}`}
+                  className={`${rouletteNumbers.includes(number) ? 'is-selected' : ''} ${ROULETTE_WHITE_NUMBERS.has(number) ? 'is-white' : number === 0 ? 'is-zero' : 'is-black'}`}
                   disabled={animatingGames.roulette}
                   aria-pressed={rouletteNumbers.includes(number)}
                   key={number}

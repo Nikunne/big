@@ -1561,7 +1561,46 @@ h1 {
   border: 5px solid #101010;
   background:
     radial-gradient(circle at center, #101010 0 21%, #0bbf7a 22% 27%, #101010 28% 30%, transparent 31%),
-    repeating-conic-gradient(from -4.86deg, #101010 0 4.86deg, #fffdf5 4.86deg 9.73deg);
+    conic-gradient(
+      from -4.8649deg,
+      #0bbf7a 0deg 9.7297deg,
+      #101010 9.7297deg 19.4595deg,
+      #fffdf5 19.4595deg 29.1892deg,
+      #101010 29.1892deg 38.9189deg,
+      #fffdf5 38.9189deg 48.6486deg,
+      #101010 48.6486deg 58.3784deg,
+      #fffdf5 58.3784deg 68.1081deg,
+      #101010 68.1081deg 77.8378deg,
+      #fffdf5 77.8378deg 87.5676deg,
+      #101010 87.5676deg 97.2973deg,
+      #fffdf5 97.2973deg 107.027deg,
+      #101010 107.027deg 116.7568deg,
+      #fffdf5 116.7568deg 126.4865deg,
+      #101010 126.4865deg 136.2162deg,
+      #fffdf5 136.2162deg 145.9459deg,
+      #101010 145.9459deg 155.6757deg,
+      #fffdf5 155.6757deg 165.4054deg,
+      #101010 165.4054deg 175.1351deg,
+      #fffdf5 175.1351deg 184.8649deg,
+      #101010 184.8649deg 194.5946deg,
+      #fffdf5 194.5946deg 204.3243deg,
+      #101010 204.3243deg 214.0541deg,
+      #fffdf5 214.0541deg 223.7838deg,
+      #101010 223.7838deg 233.5135deg,
+      #fffdf5 233.5135deg 243.2432deg,
+      #101010 243.2432deg 252.973deg,
+      #fffdf5 252.973deg 262.7027deg,
+      #101010 262.7027deg 272.4324deg,
+      #fffdf5 272.4324deg 282.1622deg,
+      #101010 282.1622deg 291.8919deg,
+      #fffdf5 291.8919deg 301.6216deg,
+      #101010 301.6216deg 311.3514deg,
+      #fffdf5 311.3514deg 321.0811deg,
+      #101010 321.0811deg 330.8108deg,
+      #fffdf5 330.8108deg 340.5405deg,
+      #101010 340.5405deg 350.2703deg,
+      #fffdf5 350.2703deg 360deg
+    );
 }
 
 .roulette-pocket-ring {
@@ -1588,12 +1627,17 @@ h1 {
   font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', var(--heading);
   font-size: clamp(13px, 2.2vw, 24px);
   line-height: 1;
-  transform: translate(-50%, -50%) rotate(var(--pocket-angle)) translateY(calc(-1 * min(36vw, 270px))) rotate(calc(-1 * var(--pocket-angle)));
+  transform: translate(-50%, -50%) rotate(var(--pocket-angle)) translateY(calc(-1 * min(30vw, 225px)));
 }
 
-.roulette-pocket-ring span.is-dark {
+.roulette-pocket-ring span.is-black {
   background: #101010;
   color: #fffdf5;
+}
+
+.roulette-pocket-ring span.is-white {
+  background: #fffdf5;
+  color: #101010;
 }
 
 .roulette-pocket-ring span.is-zero,
@@ -1646,8 +1690,8 @@ h1 {
   text-shadow: 5px 5px 0 #101010;
 }
 
-.roulette-wheel strong.is-red,
-.roulette-numbers .is-red {
+.roulette-wheel strong.is-white,
+.roulette-numbers .is-white {
   background: #fffdf5;
   color: #101010;
 }
@@ -2410,10 +2454,10 @@ button:focus-visible {
 
 @keyframes roulette-ball-spin {
   0% {
-    transform: rotate(0deg) translateY(calc(-1 * min(33vw, 246px))) rotate(0deg);
+    transform: rotate(calc(var(--roulette-ball-end) - 720deg)) translateY(calc(-1 * min(33vw, 246px))) rotate(calc(-1 * (var(--roulette-ball-end) - 720deg)));
   }
   72% {
-    transform: rotate(-1180deg) translateY(calc(-1 * min(33vw, 246px))) rotate(1180deg);
+    transform: rotate(calc(var(--roulette-ball-end) - 160deg)) translateY(calc(-1 * min(33vw, 246px))) rotate(calc(-1 * (var(--roulette-ball-end) - 160deg)));
   }
   100% {
     transform: rotate(var(--roulette-ball-end)) translateY(calc(-1 * min(33vw, 246px))) rotate(calc(-1 * var(--roulette-ball-end)));
