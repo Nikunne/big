@@ -438,6 +438,8 @@ function App() {
     .slice(0, 5)
   const activeCasinoUserRef = useRef<UserRecord | undefined>(undefined)
   const currentUsernameRef = useRef('')
+  const routePathRef = useRef(routePath)
+  const playRouletteRef = useRef<() => void>(() => {})
   const highLowStake = Math.max(1, Math.floor(Number(highLowBet) || gameSettings.highLowCost || 1))
   const visibleHighLowCard = animatingGames.highLow
     ? highLowCard
@@ -554,6 +556,10 @@ function App() {
   }, [activeCasinoUser, currentUsername])
 
   useEffect(() => {
+    routePathRef.current = routePath
+  }, [routePath])
+
+  useEffect(() => {
     const timeouts = autoplayTimeouts.current
 
     return () => {
@@ -578,6 +584,12 @@ function App() {
         && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
 
       const isPlainKey = !event.altKey && !event.ctrlKey && !event.metaKey
+
+      if (isPlainKey && routePathRef.current === '/roulette' && event.key === 'Enter') {
+        event.preventDefault()
+        playRouletteRef.current()
+        return
+      }
 
       if (isPlainKey && !isTyping && event.key.toLowerCase() === 'p' && currentUsernameRef.current === 'niklas') {
         setShowPricePanel((isVisible) => !isVisible)
@@ -1548,6 +1560,10 @@ function App() {
         finishGame('roulette')
       })
   }
+
+  useEffect(() => {
+    playRouletteRef.current = playRoulette
+  }, [playRoulette])
 
   const buyFlaxTicket = async () => {
     const cost = gameSettings.flaxCost
