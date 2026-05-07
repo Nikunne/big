@@ -1681,17 +1681,45 @@ h1 {
   gap: 10px;
 }
 
+.high-low-stake {
+  display: grid;
+  gap: 8px;
+  font-family: var(--mono);
+  font-weight: 950;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.high-low-stake input {
+  min-height: 48px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 4px solid #101010;
+  background: #fff;
+  color: #101010;
+  font-family: var(--mono);
+  font-weight: 900;
+}
+
 .three-actions {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .game-button {
+  display: grid;
+  place-items: center;
+  gap: 4px;
   min-height: 58px;
   padding: 0 14px;
   border: 5px solid #101010;
   background: #77ff68;
   box-shadow: 7px 7px 0 #101010;
   cursor: pointer;
+}
+
+.game-button strong {
+  font-size: 0.82rem;
 }
 
 .game-button.alt {

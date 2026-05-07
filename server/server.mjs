@@ -37,6 +37,8 @@ const sessions = new Map()
 const activeFlaxTickets = new Map()
 const activeHighLowCards = new Map()
 const slotSymbols = ['BD', 'FYI', '1000', '!!!', '777']
+const highLowHouseReturnBps = 9600
+const cardCount = 13
 const defaultGameSettings = {
   slotsCost: 160,
   slotsTriplePayout: 1200,
@@ -117,6 +119,36 @@ const hashPassword = (password) => (
 
 const normalizeUsername = (username) => String(username ?? '').trim().toLowerCase()
 const normalizeSettingValue = (value) => Math.max(0, Math.floor(Number(value) || 0))
+const normalizeBetCost = (value, fallback) => {
+  const cost = Math.floor(Number(value) || 0)
+  return cost > 0 ? cost : fallback
+}
+const getHighLowWinCount = (card, guess) => (
+  guess === 'higher'
+    ? cardCount - card
+    : card - 1
+)
+const getHighLowPayout = (cost, card, guess) => {
+  const winCount = getHighLowWinCount(card, guess)
+
+  if (winCount <= 0) {
+    return 0
+  }
+
+  return Math.floor((cost * cardCount * highLowHouseReturnBps) / (winCount * 10000))
+}
+const pickRandomCard = () => randomInt(1, cardCount + 1)
+const getActiveHighLowCard = (username) => {
+  const storedCard = activeHighLowCards.get(username)
+
+  if (storedCard) {
+    return storedCard
+  }
+
+  const nextCard = pickRandomCard()
+  activeHighLowCards.set(username, nextCard)
+  return nextCard
+}
 
 const createSession = (username) => {
   const token = randomBytes(32).toString('hex')
@@ -139,6 +171,7 @@ const publicUser = (row) => ({
   walletCreatedAt: row.wallet_created_at,
   lastWalletCheckAt: row.last_wallet_check_at,
   transferBlocked: Boolean(row.transfer_blocked),
+  highLowCard: getActiveHighLowCard(row.username),
 })
 
 const getUser = db.prepare(
@@ -367,7 +400,6 @@ const syncAllWalletDeposits = async () => {
 const pickRandomCoinFace = () => (randomInt(2) === 0 ? 'BD' : 'FYI')
 const pickRandomLuckyNumber = () => randomInt(1, 4)
 const pickRandomHighLowGuess = () => (randomInt(2) === 0 ? 'higher' : 'lower')
-const pickRandomCard = () => randomInt(1, 14)
 
 const normalizeCoinPick = (pick) => (pick === 'BD' || pick === 'FYI' ? pick : '')
 const normalizeHighLowGuess = (guess) => (guess === 'higher' || guess === 'lower' ? guess : '')
@@ -456,15 +488,15 @@ const publicFlaxTicket = (ticket) => ticket.map((square) => ({
 }))
 
 const runCoinGame = (username, cost, play) => {
-  const user = getUser.get(username)
-
-  if (user.coins < cost) {
-    return { error: `This game costs ${cost.toLocaleString()} coins.` }
-  }
-
   db.exec('BEGIN IMMEDIATE')
   try {
-    adjustCoins.run(-cost, username)
+    const debit = debitCoins.run(cost, username, cost)
+
+    if (debit.changes === 0) {
+      db.exec('ROLLBACK')
+      return { error: `This game costs ${cost.toLocaleString()} coins.` }
+    }
+
     const result = play()
 
     if (result.payout > 0) {
@@ -856,20 +888,23 @@ createServer(async (request, response) => {
           })
         } else if (game === 'highLow') {
           const guess = normalizeHighLowGuess(body.guess)
+          const cost = normalizeBetCost(body.cost, settings.highLowCost)
 
           if (!guess) {
             sendJson(response, 400, { error: 'Guess higher or lower.' })
             return
           }
 
-          result = runCoinGame(username, settings.highLowCost, () => {
-            const startCard = activeHighLowCards.get(username) ?? pickRandomCard()
+          result = runCoinGame(username, cost, () => {
+            const startCard = getActiveHighLowCard(username)
             const nextCard = pickRandomCard()
             const won = guess === 'higher' ? nextCard > startCard : nextCard < startCard
+            const availablePayout = getHighLowPayout(cost, startCard, guess)
             activeHighLowCards.set(username, nextCard)
 
             return {
-              payout: won ? settings.highLowPayout : 0,
+              payout: won ? availablePayout : 0,
+              availablePayout,
               guess,
               startCard,
               nextCard,

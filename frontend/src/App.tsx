@@ -10,6 +10,7 @@ type UserRecord = {
   walletCreatedAt: number
   lastWalletCheckAt: number
   transferBlocked: boolean
+  highLowCard: number
 }
 
 type AuthMode = 'login' | 'signup'
@@ -75,7 +76,6 @@ type GameSettings = {
   flipCost: number
   flipPayout: number
   highLowCost: number
-  highLowPayout: number
   diceCost: number
   diceSixPayout: number
   diceHighPayout: number
@@ -97,6 +97,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 const SLOT_SYMBOLS = ['BD', 'FYI', '1000', '!!!', '777']
 const SLOT_REEL_HEIGHT = 96
 const SLOT_SPIN_DURATION_MS = 1900
+const HIGH_LOW_CARD_COUNT = 13
+const HIGH_LOW_HOUSE_RETURN_BPS = 9600
 const DEFAULT_GAME_SETTINGS: GameSettings = {
   slotsCost: 160,
   slotsTriplePayout: 1200,
@@ -104,7 +106,6 @@ const DEFAULT_GAME_SETTINGS: GameSettings = {
   flipCost: 110,
   flipPayout: 220,
   highLowCost: 160,
-  highLowPayout: 360,
   diceCost: 250,
   diceSixPayout: 900,
   diceHighPayout: 320,
@@ -132,7 +133,6 @@ const GAME_SETTING_LABELS: Record<keyof GameSettings, string> = {
   flipCost: 'Coin flip cost',
   flipPayout: 'Coin flip payout',
   highLowCost: 'High low cost',
-  highLowPayout: 'High low payout',
   diceCost: 'Dice roll cost',
   diceSixPayout: 'Dice 6 payout',
   diceHighPayout: 'Dice 4-5 payout',
@@ -177,6 +177,26 @@ const pickRandomHighLowGuess = (): 'higher' | 'lower' => (
 )
 
 const pickRandomLuckyNumber = () => Math.ceil(Math.random() * 3)
+
+const getHighLowWinCount = (card: number, guess: 'higher' | 'lower') => (
+  guess === 'higher'
+    ? HIGH_LOW_CARD_COUNT - card
+    : card - 1
+)
+
+const getHighLowPayout = (cost: number, card: number, guess: 'higher' | 'lower') => {
+  const winCount = getHighLowWinCount(card, guess)
+
+  if (winCount <= 0) {
+    return 0
+  }
+
+  return Math.floor((cost * HIGH_LOW_CARD_COUNT * HIGH_LOW_HOUSE_RETURN_BPS) / (winCount * 10000))
+}
+
+const formatMultiplier = (payout: number, cost: number) => (
+  cost > 0 && payout > 0 ? `${(payout / cost).toFixed(2)}x` : '0.00x'
+)
 
 const getSlotSymbolClassName = (symbol: string) => (
   `slot-symbol slot-symbol-${symbol.toLowerCase().replaceAll('!', 'bang')}`
@@ -288,6 +308,7 @@ function App() {
   ))
   const [coinFace, setCoinFace] = useState('BD')
   const [highLowCard, setHighLowCard] = useState(() => Math.ceil(Math.random() * 13))
+  const [highLowBet, setHighLowBet] = useState(String(DEFAULT_GAME_SETTINGS.highLowCost))
   const [diceRoll, setDiceRoll] = useState(6)
   const [luckyNumber, setLuckyNumber] = useState(1)
   const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket(DEFAULT_GAME_SETTINGS))
@@ -360,6 +381,12 @@ function App() {
     .slice(0, 5)
   const activeCasinoUserRef = useRef<UserRecord | undefined>(undefined)
   const currentUsernameRef = useRef('')
+  const highLowStake = Math.max(1, Math.floor(Number(highLowBet) || gameSettings.highLowCost || 1))
+  const visibleHighLowCard = animatingGames.highLow
+    ? highLowCard
+    : activeCasinoUser?.highLowCard ?? highLowCard
+  const highLowHigherPayout = getHighLowPayout(highLowStake, visibleHighLowCard, 'higher')
+  const highLowLowerPayout = getHighLowPayout(highLowStake, visibleHighLowCard, 'lower')
 
   const posterStyle = {
     '--poster-spin': `${posterRotation}deg`,
@@ -379,6 +406,11 @@ function App() {
         user.username === nextUser.username ? nextUser : user
       ))
     })
+  }
+
+  const syncUsers = async () => {
+    const { users: loadedUsers } = await apiRequest<{ users: UserRecord[] }>('/api/users')
+    setUsers(loadedUsers)
   }
 
   useEffect(() => {
@@ -404,6 +436,7 @@ function App() {
         if (isMounted) {
           setUsers(loadedUsers)
           setGameSettings(settings)
+          setHighLowBet(String(settings.highLowCost))
           setFlaxTicket(createFlaxTicket(settings))
           setIsLoadingUsers(false)
         }
@@ -926,7 +959,7 @@ function App() {
     }
 
     if (game === 'highLow') {
-      return `Costs ${gameSettings.highLowCost} coins. The shown number is in the 1-13 range. Guess if the next number will be higher or lower. Correct pays ${gameSettings.highLowPayout}.`
+      return 'Choose a stake. The shown number is in the 1-13 range. Each button shows its current multiplier, and ties lose.'
     }
 
     if (game === 'dice') {
@@ -1041,6 +1074,12 @@ function App() {
 
     gameLocks.current[game] = true
     setAnimatingGames((games) => ({ ...games, [game]: true }))
+    const debitedUser = {
+      ...casinoUser,
+      coins: Math.max(0, casinoUser.coins - cost),
+    }
+    activeCasinoUserRef.current = debitedUser
+    upsertUser(debitedUser)
     emitFloatingDelta(game, -cost)
     setGameResult({
       title: 'Bet placed',
@@ -1157,6 +1196,7 @@ function App() {
         }, SLOT_SPIN_DURATION_MS)
       })
       .catch((error) => {
+        void syncUsers()
         setGameResult({
           title: 'Slots rejected',
           detail: error instanceof Error ? error.message : 'Could not play slots.',
@@ -1197,6 +1237,7 @@ function App() {
           detail: `You picked ${pick}. Coin landed ${face}. Net ${won ? `+${payout - game.cost}` : `-${game.cost}`}.`,
         })
       } catch (error) {
+        void syncUsers()
         setGameResult({
           title: 'Flip rejected',
           detail: error instanceof Error ? error.message : 'Could not flip.',
@@ -1208,7 +1249,7 @@ function App() {
   }
 
   const playHighLow = (guess: 'higher' | 'lower') => {
-    const cost = gameSettings.highLowCost
+    const cost = highLowStake
 
     const username = beginGame('highLow', cost)
 
@@ -1216,7 +1257,7 @@ function App() {
       return
     }
 
-    const startCard = highLowCard
+    const startCard = visibleHighLowCard
 
     window.setTimeout(async () => {
       try {
@@ -1224,7 +1265,7 @@ function App() {
           `/api/users/${encodeURIComponent(username)}/play`,
           {
             method: 'POST',
-            body: JSON.stringify({ game: 'highLow', guess, startCard }),
+            body: JSON.stringify({ game: 'highLow', guess, startCard, cost }),
           },
         )
         const serverStartCard = game.startCard ?? startCard
@@ -1238,10 +1279,11 @@ function App() {
         }
         setGameResult({
           title: won ? 'Good read' : nextCard === serverStartCard ? 'Push? No mercy' : 'Bad read',
-          detail: `${serverStartCard} to ${nextCard}. Spent ${game.cost}, ${won ? `won ${payout}` : 'won 0'}.`,
+          detail: `${serverStartCard} to ${nextCard}. Spent ${game.cost}, ${won ? `won ${payout} (${formatMultiplier(payout, game.cost)})` : 'won 0'}.`,
         })
         setHighLowCard(nextCard)
       } catch (error) {
+        void syncUsers()
         setGameResult({
           title: 'High low rejected',
           detail: error instanceof Error ? error.message : 'Could not play high low.',
@@ -1282,6 +1324,7 @@ function App() {
           detail: `Rolled ${roll}. Spent ${game.cost}, ${payout > 0 ? `won ${payout}` : 'won 0'}.`,
         })
       } catch (error) {
+        void syncUsers()
         setGameResult({
           title: 'Dice rejected',
           detail: error instanceof Error ? error.message : 'Could not roll dice.',
@@ -1323,6 +1366,7 @@ function App() {
           detail: `You picked ${pick}. Machine picked ${number}. ${won ? `Won ${payout}` : 'Won 0'}.`,
         })
       } catch (error) {
+        void syncUsers()
         setGameResult({
           title: 'Lucky rejected',
           detail: error instanceof Error ? error.message : 'Could not play lucky pick.',
@@ -1357,6 +1401,7 @@ function App() {
         detail: `Spent ${game.cost}. Scratch all 9 squares to check the prize.`,
       })
     } catch (error) {
+      void syncUsers()
       setGameResult({
         title: 'FLAX rejected',
         detail: error instanceof Error ? error.message : 'Could not buy FLAX-lodd.',
@@ -2039,18 +2084,31 @@ function App() {
               <strong>{activeCasinoUser.coins.toLocaleString()} coins</strong>
             </div>
             <div className="game-heading">
-              <p className="eyebrow">Cost: {gameSettings.highLowCost}</p>
+              <p className="eyebrow">Stake: {highLowStake}</p>
               <h2>High low</h2>
               {renderGameHelpButton('highLow')}
             </div>
-            <div className="card-display">{highLowCard}</div>
-            <p>The shown number is 1-13. Guess the next number. Correct pays {gameSettings.highLowPayout}.</p>
+            <div className="card-display">{visibleHighLowCard}</div>
+            <label className="high-low-stake">
+              Stake
+              <input
+                inputMode="numeric"
+                min="1"
+                type="number"
+                value={highLowBet}
+                disabled={!isOwnPage || animatingGames.highLow}
+                onChange={(event) => setHighLowBet(event.target.value)}
+              />
+            </label>
+            <p>The shown number is 1-13. Ties lose. Multipliers update from this number.</p>
             <div className="game-actions">
               <button className="game-button" type="button" disabled={!isOwnPage || animatingGames.highLow} onClick={() => playHighLow('higher')}>
-                Higher
+                <span>Higher</span>
+                <strong>{formatMultiplier(highLowHigherPayout, highLowStake)}</strong>
               </button>
               <button className="game-button alt" type="button" disabled={!isOwnPage || animatingGames.highLow} onClick={() => playHighLow('lower')}>
-                Lower
+                <span>Lower</span>
+                <strong>{formatMultiplier(highLowLowerPayout, highLowStake)}</strong>
               </button>
             </div>
             {renderAutoplayButton('highLow')}
