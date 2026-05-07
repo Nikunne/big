@@ -106,6 +106,7 @@ const ROULETTE_NUMBER_COUNT = 37
 const ROULETTE_HOUSE_RETURN_BPS = 9700
 const ROULETTE_MAX_COVERED_NUMBERS = 18
 const ROULETTE_RED_NUMBERS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36])
+const ROULETTE_CHOICES = Array.from({ length: ROULETTE_NUMBER_COUNT }, (_, number) => number)
 const DEFAULT_GAME_SETTINGS: GameSettings = {
   slotsCost: 160,
   slotsTriplePayout: 1200,
@@ -207,6 +208,17 @@ const getRoulettePayout = (cost: number, coveredCount: number) => (
     ? Math.floor((cost * ROULETTE_NUMBER_COUNT * ROULETTE_HOUSE_RETURN_BPS) / (coveredCount * 10000))
     : 0
 )
+
+const areSameNumbers = (firstNumbers: number[], secondNumbers: number[]) => {
+  if (firstNumbers.length !== secondNumbers.length) {
+    return false
+  }
+
+  const firstSorted = [...firstNumbers].sort((first, second) => first - second)
+  const secondSorted = [...secondNumbers].sort((first, second) => first - second)
+
+  return firstSorted.every((number, index) => number === secondSorted[index])
+}
 
 const formatMultiplier = (payout: number, cost: number) => (
   cost > 0 && payout > 0 ? `${(payout / cost).toFixed(2)}x` : '0.00x'
@@ -1964,8 +1976,16 @@ function App() {
 
   const renderRoulettePage = () => {
     const isOwnPage = Boolean(currentUser)
-    const rouletteChoices = Array.from({ length: ROULETTE_NUMBER_COUNT }, (_, number) => number)
     const coveredPercent = ((sortedRouletteNumbers.length / ROULETTE_NUMBER_COUNT) * 100).toFixed(1)
+    const roulettePresets = [
+      { label: 'Red', numbers: [...ROULETTE_RED_NUMBERS] },
+      { label: 'Black', numbers: ROULETTE_CHOICES.filter((number) => number > 0 && !ROULETTE_RED_NUMBERS.has(number)) },
+      { label: 'Odd', numbers: ROULETTE_CHOICES.filter((number) => number % 2 === 1) },
+      { label: 'Even', numbers: ROULETTE_CHOICES.filter((number) => number > 0 && number % 2 === 0) },
+      { label: '1-18', numbers: ROULETTE_CHOICES.filter((number) => number >= 1 && number <= 18) },
+      { label: '19-36', numbers: ROULETTE_CHOICES.filter((number) => number >= 19) },
+      { label: 'Clear', numbers: [] },
+    ]
 
     if (isLoadingUsers) {
       return (
@@ -2062,34 +2082,30 @@ function App() {
             </div>
 
             <div className="roulette-presets" aria-label="Roulette presets">
-              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers([...ROULETTE_RED_NUMBERS])}>
-                Red
-              </button>
-              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers(rouletteChoices.filter((number) => number > 0 && !ROULETTE_RED_NUMBERS.has(number)))}>
-                Black
-              </button>
-              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers(rouletteChoices.filter((number) => number % 2 === 1))}>
-                Odd
-              </button>
-              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers(rouletteChoices.filter((number) => number > 0 && number % 2 === 0))}>
-                Even
-              </button>
-              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers(rouletteChoices.filter((number) => number >= 1 && number <= 18))}>
-                1-18
-              </button>
-              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers(rouletteChoices.filter((number) => number >= 19))}>
-                19-36
-              </button>
-              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers([])}>
-                Clear
-              </button>
+              {roulettePresets.map((preset) => {
+                const isSelected = areSameNumbers(rouletteNumbers, preset.numbers)
+
+                return (
+                  <button
+                    className={isSelected ? 'is-selected' : ''}
+                    type="button"
+                    disabled={animatingGames.roulette}
+                    aria-pressed={isSelected}
+                    key={preset.label}
+                    onClick={() => setRouletteCoveredNumbers(preset.numbers)}
+                  >
+                    {preset.label}
+                  </button>
+                )
+              })}
             </div>
 
             <div className="roulette-numbers" aria-label="Roulette numbers">
-              {rouletteChoices.map((number) => (
+              {ROULETTE_CHOICES.map((number) => (
                 <button
                   className={`${rouletteNumbers.includes(number) ? 'is-selected' : ''} ${ROULETTE_RED_NUMBERS.has(number) ? 'is-red' : number === 0 ? 'is-zero' : 'is-black'}`}
                   disabled={animatingGames.roulette}
+                  aria-pressed={rouletteNumbers.includes(number)}
                   key={number}
                   type="button"
                   onClick={() => toggleRouletteNumber(number)}

@@ -1635,6 +1635,12 @@ h1 {
   cursor: pointer;
 }
 
+.roulette-presets button.is-selected {
+  background: #00e1ff;
+  box-shadow: 5px 5px 0 #101010, inset 0 0 0 5px #fff200;
+  transform: translate(2px, 2px);
+}
+
 .roulette-presets button:disabled {
   background: #fffdf5;
   cursor: not-allowed;
@@ -1654,7 +1660,7 @@ h1 {
   min-height: 48px;
   place-items: center;
   border: 4px solid #101010;
-  box-shadow: inset 0 0 0 0 #fff200;
+  box-shadow: none;
   cursor: pointer;
   font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', var(--heading);
   font-size: clamp(22px, 3vw, 34px);
@@ -1662,8 +1668,10 @@ h1 {
 }
 
 .roulette-numbers button.is-selected {
-  box-shadow: inset 0 0 0 6px #fff200;
-  outline: 4px solid #00e1ff;
+  border-color: #fff200;
+  box-shadow: 0 0 0 4px #00e1ff, inset 0 0 0 5px #fff200;
+  transform: translateY(-2px);
+  z-index: 1;
 }
 
 .roulette-numbers button:disabled {
