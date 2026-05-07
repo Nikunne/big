@@ -2382,7 +2382,7 @@ function App() {
     }
     return (
       <div
-        key={`${card.r}${card.s}`}
+        key={`${index}-${card.r}${card.s}`}
         className={`bj-card${isRed ? ' is-red' : ''}`}
         style={{ animationDelay: `${animDelay}ms` }}
         aria-label={`${card.r} of ${card.s}`}
