@@ -106,7 +106,7 @@ const HIGH_LOW_HOUSE_RETURN_BPS = 9600
 const ROULETTE_NUMBER_COUNT = 37
 const ROULETTE_HOUSE_RETURN_BPS = 9700
 const ROULETTE_MAX_COVERED_NUMBERS = 36
-const ROULETTE_SPIN_DURATION_MS = 2200
+const ROULETTE_SPIN_DURATION_MS = 3700
 const ROULETTE_WHITE_NUMBERS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36])
 const ROULETTE_CHOICES = Array.from({ length: ROULETTE_NUMBER_COUNT }, (_, number) => number)
 const ROULETTE_WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
@@ -218,11 +218,11 @@ const getHighLowPayout = (cost: number, card: number, guess: 'higher' | 'lower')
   return Math.floor((cost * HIGH_LOW_CARD_COUNT * HIGH_LOW_HOUSE_RETURN_BPS) / (winCount * 10000))
 }
 
-const getRoulettePayout = (cost: number, coveredCount: number) => (
-  coveredCount > 0
-    ? Math.floor((cost * ROULETTE_NUMBER_COUNT * ROULETTE_HOUSE_RETURN_BPS) / (coveredCount * 10000))
-    : 0
-)
+const getRoulettePayout = (cost: number, coveredCount: number): number => {
+  if (coveredCount <= 0) return 0
+  if (coveredCount === 18) return cost * 2
+  return Math.floor((cost * ROULETTE_NUMBER_COUNT * ROULETTE_HOUSE_RETURN_BPS) / (coveredCount * 10000))
+}
 
 const areSameNumbers = (firstNumbers: number[], secondNumbers: number[]) => {
   if (firstNumbers.length !== secondNumbers.length) {
@@ -361,6 +361,7 @@ function App() {
   const [rouletteLastWon, setRouletteLastWon] = useState(false)
   const [rouletteLastPayout, setRouletteLastPayout] = useState(0)
   const [rouletteHasResult, setRouletteHasResult] = useState(false)
+  const [rouletteBallEnd, setRouletteBallEnd] = useState(0)
   const [diceRoll, setDiceRoll] = useState(6)
   const [luckyNumber, setLuckyNumber] = useState(1)
   const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket(DEFAULT_GAME_SETTINGS))
@@ -441,6 +442,7 @@ function App() {
   const routePathRef = useRef(routePath)
   const playRouletteRef = useRef<() => void>(() => {})
   const rouletteWheelRotationRef = useRef(0)
+  const rouletteBallEndRef = useRef(0)
   const highLowStake = Math.max(1, Math.floor(Number(highLowBet) || gameSettings.highLowCost || 1))
   const visibleHighLowCard = animatingGames.highLow
     ? highLowCard
@@ -1540,12 +1542,21 @@ function App() {
         const won = game.payout > 0
         rouletteWheelRotationRef.current = nextWheelRotation
 
+        const rollIndex = Math.max(0, ROULETTE_WHEEL_ORDER.indexOf(roll))
+        const pocketAngle = (rollIndex * 360) / ROULETTE_NUMBER_COUNT
+        const pocketAbsolute = nextWheelRotation + pocketAngle
+        const prevBallEnd = rouletteBallEndRef.current
+        const stepsBack = Math.ceil((pocketAbsolute - prevBallEnd) / 1080) + 1
+        const nextBallEnd = pocketAbsolute - stepsBack * 1080
+        rouletteBallEndRef.current = nextBallEnd
+
         setRouletteRoll(roll)
         setRouletteLastWon(won)
         setRouletteLastPayout(game.payout)
         setRouletteHasResult(false)
         setRouletteWheelSpinStart(currentRotation)
         setRouletteWheelRotation(nextWheelRotation)
+        setRouletteBallEnd(nextBallEnd)
         window.setTimeout(() => {
           const payout = game.payout
 
@@ -2066,9 +2077,7 @@ function App() {
   const renderRoulettePage = () => {
     const isOwnPage = Boolean(currentUser)
     const coveredPercent = ((sortedRouletteNumbers.length / ROULETTE_NUMBER_COUNT) * 100).toFixed(1)
-    const rouletteRollIndex = Math.max(0, ROULETTE_WHEEL_ORDER.indexOf(rouletteRoll))
-    const roulettePocketAngle = (rouletteRollIndex * 360) / ROULETTE_NUMBER_COUNT
-    const rouletteBallEnd = rouletteWheelRotation + roulettePocketAngle
+
     const rouletteResultClassName = !animatingGames.roulette
       ? rouletteLastWon
         ? 'is-result-win'

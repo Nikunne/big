@@ -157,11 +157,11 @@ const normalizeRouletteNumbers = (numbers) => {
     Number.isSafeInteger(number) && number >= 0 && number < rouletteNumberCount
   ))
 }
-const getRoulettePayout = (cost, coveredCount) => (
-  coveredCount > 0
-    ? Math.floor((cost * rouletteNumberCount * rouletteHouseReturnBps) / (coveredCount * 10000))
-    : 0
-)
+const getRoulettePayout = (cost, coveredCount) => {
+  if (coveredCount <= 0) return 0
+  if (coveredCount === 18) return cost * 2
+  return Math.floor((cost * rouletteNumberCount * rouletteHouseReturnBps) / (coveredCount * 10000))
+}
 const pickRandomCard = () => randomInt(1, cardCount + 1)
 const getActiveHighLowCard = (username) => {
   const storedCard = activeHighLowCards.get(username)
