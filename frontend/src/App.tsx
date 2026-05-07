@@ -1515,7 +1515,7 @@ function App() {
     )
       .then(({ user, game }) => {
         const roll = game.roll ?? rouletteRoll
-        const nextWheelRotation = rouletteWheelRotation + 1440 + 137
+        const nextWheelRotation = rouletteWheelRotation + 2520 + 137
         const won = game.payout > 0
 
         setRouletteRoll(roll)
