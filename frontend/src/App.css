@@ -2891,8 +2891,10 @@ button:focus-visible {
   font-family: var(--mono);
   font-weight: 900;
   font-size: 20px;
-  padding: 8px 12px;
+  padding: 0 12px;
   width: 160px;
+  height: 52px;
+  box-sizing: border-box;
   outline: none;
 }
 
@@ -2904,8 +2906,10 @@ button:focus-visible {
   background: #8b1a1a;
   border-color: #d82f2f;
   color: #ffd700;
-  padding: 12px 32px;
-  font-size: clamp(20px, 3vw, 28px);
+  padding: 0 32px;
+  height: 52px;
+  font-size: clamp(18px, 2.5vw, 24px);
+  box-sizing: border-box;
 }
 
 .bj-btn-deal:not(:disabled):hover {

@@ -2390,7 +2390,9 @@ function App() {
     return (
       <main className="blackjack-page">
         <nav className="bj-nav">
-          <button type="button" className="bj-nav-back" onClick={() => goToPath('/')}>← Home</button>
+          <button type="button" className="bj-nav-back" onClick={() => goToPath(currentUser ? `/users/${currentUser.username}` : '/')}>
+            ← {currentUser ? 'My Casino' : 'Home'}
+          </button>
           {currentUser && (
             <div className="bj-balance">
               <span>{currentUser.coins.toLocaleString()}</span>
@@ -2892,6 +2894,17 @@ function App() {
               </button>
             </div>
             {renderAutoplayButton('flax')}
+          </article>
+
+          <article className="game-card blackjack-card">
+            <div className="game-heading">
+              <p className="eyebrow">Card game</p>
+              <h2>Blackjack</h2>
+            </div>
+            <p className="game-description">Beat the dealer. Blackjack pays 3:2. Dealer hits soft 17.</p>
+            <button className="game-button" type="button" onClick={() => goToPath('/blackjack')}>
+              Play Blackjack
+            </button>
           </article>
 
           <aside className="game-result" aria-live="polite">
