@@ -108,6 +108,7 @@ const ROULETTE_MAX_COVERED_NUMBERS = 36
 const ROULETTE_SPIN_DURATION_MS = 2200
 const ROULETTE_RED_NUMBERS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36])
 const ROULETTE_CHOICES = Array.from({ length: ROULETTE_NUMBER_COUNT }, (_, number) => number)
+const ROULETTE_WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
 const DEFAULT_GAME_SETTINGS: GameSettings = {
   slotsCost: 160,
   slotsTriplePayout: 1200,
@@ -1187,6 +1188,7 @@ function App() {
     }
 
     if (game === 'roulette') {
+      playRoulette()
       return
     }
 
@@ -1454,8 +1456,6 @@ function App() {
       return
     }
 
-    setRouletteSpin((spin) => spin + 1)
-
     apiRequest<PlayResponse>(
       `/api/users/${encodeURIComponent(username)}/play`,
       {
@@ -1464,12 +1464,14 @@ function App() {
       },
     )
       .then(({ user, game }) => {
+        const roll = game.roll ?? rouletteRoll
+
+        setRouletteRoll(roll)
+        setRouletteSpin((spin) => spin + 1)
         window.setTimeout(() => {
-          const roll = game.roll ?? rouletteRoll
           const payout = game.payout
           const won = payout > 0
 
-          setRouletteRoll(roll)
           upsertUser(user)
           if (payout > 0) {
             emitFloatingDelta('roulette', payout)
@@ -1982,6 +1984,8 @@ function App() {
   const renderRoulettePage = () => {
     const isOwnPage = Boolean(currentUser)
     const coveredPercent = ((sortedRouletteNumbers.length / ROULETTE_NUMBER_COUNT) * 100).toFixed(1)
+    const rouletteRollIndex = Math.max(0, ROULETTE_WHEEL_ORDER.indexOf(rouletteRoll))
+    const roulettePocketAngle = (rouletteRollIndex * 360) / ROULETTE_NUMBER_COUNT
     const roulettePresets = [
       { label: 'Red', numbers: [...ROULETTE_RED_NUMBERS] },
       { label: 'Black', numbers: ROULETTE_CHOICES.filter((number) => number > 0 && !ROULETTE_RED_NUMBERS.has(number)) },
@@ -2057,9 +2061,23 @@ function App() {
           <div
             className="roulette-wheel"
             aria-live="polite"
-            style={{ '--roulette-spin-end': `${1440 + rouletteSpin * 137}deg` } as CSSProperties}
+            style={{
+              '--roulette-spin-end': `${1440 + rouletteSpin * 137}deg`,
+              '--roulette-ball-end': `${roulettePocketAngle + 1440}deg`,
+            } as CSSProperties}
           >
-            <span>Roll</span>
+            <div className="roulette-pocket-ring" aria-hidden="true">
+              {ROULETTE_WHEEL_ORDER.map((number, index) => (
+                <span
+                  className={`${number === 0 ? 'is-zero' : index % 2 === 0 ? 'is-dark' : 'is-light'} ${number === rouletteRoll && !animatingGames.roulette ? 'is-result' : ''}`}
+                  key={number}
+                  style={{ '--pocket-angle': `${(index * 360) / ROULETTE_NUMBER_COUNT}deg` } as CSSProperties}
+                >
+                  {number}
+                </span>
+              ))}
+            </div>
+            <i className="roulette-ball" aria-hidden="true"></i>
             <strong className={ROULETTE_RED_NUMBERS.has(rouletteRoll) ? 'is-red' : rouletteRoll === 0 ? 'is-zero' : 'is-black'}>
               {animatingGames.roulette ? '?' : rouletteRoll}
             </strong>
@@ -2125,13 +2143,14 @@ function App() {
             </div>
 
             <button
-              className="game-button"
+              className="game-button roulette-spin-button"
               type="button"
               disabled={!isOwnPage || animatingGames.roulette || sortedRouletteNumbers.length === 0}
               onClick={playRoulette}
             >
               {animatingGames.roulette ? 'Spinning' : `Spin for ${rouletteMultiplier}`}
             </button>
+            {renderAutoplayButton('roulette')}
           </div>
 
           <aside className="game-result roulette-result" aria-live="polite">
