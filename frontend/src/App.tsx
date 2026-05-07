@@ -104,7 +104,8 @@ const HIGH_LOW_CARD_COUNT = 13
 const HIGH_LOW_HOUSE_RETURN_BPS = 9600
 const ROULETTE_NUMBER_COUNT = 37
 const ROULETTE_HOUSE_RETURN_BPS = 9700
-const ROULETTE_MAX_COVERED_NUMBERS = 18
+const ROULETTE_MAX_COVERED_NUMBERS = 36
+const ROULETTE_SPIN_DURATION_MS = 2200
 const ROULETTE_RED_NUMBERS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36])
 const ROULETTE_CHOICES = Array.from({ length: ROULETTE_NUMBER_COUNT }, (_, number) => number)
 const DEFAULT_GAME_SETTINGS: GameSettings = {
@@ -338,6 +339,7 @@ function App() {
   const [rouletteBet, setRouletteBet] = useState(String(DEFAULT_GAME_SETTINGS.highLowCost))
   const [rouletteNumbers, setRouletteNumbers] = useState<number[]>([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36])
   const [rouletteRoll, setRouletteRoll] = useState(0)
+  const [rouletteSpin, setRouletteSpin] = useState(0)
   const [diceRoll, setDiceRoll] = useState(6)
   const [luckyNumber, setLuckyNumber] = useState(1)
   const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket(DEFAULT_GAME_SETTINGS))
@@ -1010,7 +1012,7 @@ function App() {
     }
 
     if (game === 'roulette') {
-      return 'Choose a stake and cover up to 18 numbers. More covered numbers win more often, but the multiplier drops. Zero is live, and payouts are capped below fair odds.'
+      return 'Choose a stake and cover any custom set up to 36 numbers. More covered numbers win more often, but the multiplier drops. Zero is live, and payouts are capped below fair odds.'
     }
 
     return `Costs ${gameSettings.flaxCost} coins. Scratch all 9 squares. Three equal prize numbers pays that prize.`
@@ -1452,38 +1454,41 @@ function App() {
       return
     }
 
-    window.setTimeout(async () => {
-      try {
-        const { user, game } = await apiRequest<PlayResponse>(
-          `/api/users/${encodeURIComponent(username)}/play`,
-          {
-            method: 'POST',
-            body: JSON.stringify({ game: 'roulette', cost, numbers: sortedRouletteNumbers }),
-          },
-        )
-        const roll = game.roll ?? rouletteRoll
-        const payout = game.payout
-        const won = payout > 0
+    setRouletteSpin((spin) => spin + 1)
 
-        setRouletteRoll(roll)
-        upsertUser(user)
-        if (payout > 0) {
-          emitFloatingDelta('roulette', payout)
-        }
-        setGameResult({
-          title: won ? 'Roulette hit' : 'Roulette missed',
-          detail: `Rolled ${roll}. Covered ${game.coveredCount ?? sortedRouletteNumbers.length} numbers at ${formatMultiplier(game.availablePayout ?? payout, game.cost)}. ${won ? `Won ${payout}` : 'Won 0'}.`,
-        })
-      } catch (error) {
+    apiRequest<PlayResponse>(
+      `/api/users/${encodeURIComponent(username)}/play`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ game: 'roulette', cost, numbers: sortedRouletteNumbers }),
+      },
+    )
+      .then(({ user, game }) => {
+        window.setTimeout(() => {
+          const roll = game.roll ?? rouletteRoll
+          const payout = game.payout
+          const won = payout > 0
+
+          setRouletteRoll(roll)
+          upsertUser(user)
+          if (payout > 0) {
+            emitFloatingDelta('roulette', payout)
+          }
+          setGameResult({
+            title: won ? 'Roulette hit' : 'Roulette missed',
+            detail: `Rolled ${roll}. Covered ${game.coveredCount ?? sortedRouletteNumbers.length} numbers at ${formatMultiplier(game.availablePayout ?? payout, game.cost)}. ${won ? `Won ${payout}` : 'Won 0'}.`,
+          })
+          finishGame('roulette')
+        }, ROULETTE_SPIN_DURATION_MS)
+      })
+      .catch((error) => {
         void syncUsers()
         setGameResult({
           title: 'Roulette rejected',
           detail: error instanceof Error ? error.message : 'Could not play roulette.',
         })
-      } finally {
         finishGame('roulette')
-      }
-    }, 2000)
+      })
   }
 
   const buyFlaxTicket = async () => {
@@ -2049,10 +2054,14 @@ function App() {
 
         <section className={`roulette-table ${animatingGames.roulette ? 'is-playing' : ''}`} aria-label="Roulette game">
           {renderFloatingDeltas('roulette')}
-          <div className="roulette-wheel" aria-live="polite">
+          <div
+            className="roulette-wheel"
+            aria-live="polite"
+            style={{ '--roulette-spin-end': `${1440 + rouletteSpin * 137}deg` } as CSSProperties}
+          >
             <span>Roll</span>
             <strong className={ROULETTE_RED_NUMBERS.has(rouletteRoll) ? 'is-red' : rouletteRoll === 0 ? 'is-zero' : 'is-black'}>
-              {rouletteRoll}
+              {animatingGames.roulette ? '?' : rouletteRoll}
             </strong>
           </div>
 

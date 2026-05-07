@@ -1528,6 +1528,7 @@ h1 {
 }
 
 .roulette-wheel {
+  position: relative;
   display: grid;
   min-height: 360px;
   place-items: center;
@@ -1536,25 +1537,57 @@ h1 {
   border: 6px solid #101010;
   border-radius: 50%;
   background:
-    repeating-conic-gradient(#101010 0 10deg, #d91f2b 10deg 20deg, #fffdf5 20deg 30deg),
+    radial-gradient(circle at center, #fffdf5 0 19%, transparent 20%),
     #101010;
   box-shadow: inset 0 0 0 18px #0bbf7a, 8px 8px 0 #101010;
   font-family: var(--mono);
   font-weight: 950;
+  overflow: hidden;
   text-transform: uppercase;
 }
 
-.roulette-table.is-playing .roulette-wheel {
-  animation: game-rumble 120ms steps(2, end) infinite;
+.roulette-wheel::before,
+.roulette-wheel::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.roulette-wheel::before {
+  inset: 18px;
+  border: 5px solid #101010;
+  background:
+    radial-gradient(circle at center, #0bbf7a 0 16%, #101010 17% 20%, transparent 21%),
+    repeating-conic-gradient(from 4deg, #d91f2b 0 9.73deg, #101010 9.73deg 19.46deg, #fffdf5 19.46deg 29.19deg);
+}
+
+.roulette-wheel::after {
+  width: 24px;
+  height: 24px;
+  background: #fffdf5;
+  box-shadow: 0 0 0 4px #101010;
+  transform: translateY(-142px);
+  z-index: 2;
+}
+
+.roulette-table.is-playing .roulette-wheel::before {
+  animation: roulette-wheel-spin 2200ms cubic-bezier(0.1, 0.72, 0.2, 1) forwards;
+}
+
+.roulette-table.is-playing .roulette-wheel::after {
+  animation: roulette-ball-spin 2200ms cubic-bezier(0.08, 0.8, 0.2, 1) forwards;
 }
 
 .roulette-wheel span,
 .roulette-wheel strong {
+  position: relative;
   display: grid;
   place-items: center;
   border: 5px solid #101010;
   background: #fffdf5;
   box-shadow: 6px 6px 0 #101010;
+  z-index: 3;
 }
 
 .roulette-wheel span {
@@ -2312,6 +2345,27 @@ button:focus-visible {
   100% {
     transform: translate(-2px, 1px) rotate(-1deg);
     filter: saturate(1.2);
+  }
+}
+
+@keyframes roulette-wheel-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(var(--roulette-spin-end));
+  }
+}
+
+@keyframes roulette-ball-spin {
+  0% {
+    transform: rotate(0deg) translateY(-142px) rotate(0deg);
+  }
+  72% {
+    transform: rotate(-1180deg) translateY(-142px) rotate(1180deg);
+  }
+  100% {
+    transform: rotate(-1560deg) translateY(-92px) rotate(1560deg);
   }
 }
 

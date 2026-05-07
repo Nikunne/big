@@ -968,8 +968,8 @@ createServer(async (request, response) => {
             return
           }
 
-          if (numbers.length > 18) {
-            sendJson(response, 400, { error: 'Roulette bets can cover 18 numbers or fewer.' })
+          if (numbers.length > rouletteNumberCount - 1) {
+            sendJson(response, 400, { error: 'Roulette bets can cover 36 numbers or fewer.' })
             return
           }
 
