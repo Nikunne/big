@@ -23,6 +23,7 @@ type PlayResponse = {
   game: {
     cost: number
     payout: number
+    availablePayout?: number
     reels?: string[]
     face?: string
     pick?: string
@@ -30,6 +31,8 @@ type PlayResponse = {
     startCard?: number
     nextCard?: number
     roll?: number
+    numbers?: number[]
+    coveredCount?: number
     number?: number
     ticket?: FlaxSquare[]
   }
@@ -58,7 +61,7 @@ type GameResult = {
   title: string
   detail: string
 }
-type GameName = 'slots' | 'flip' | 'highLow' | 'dice' | 'lucky' | 'flax'
+type GameName = 'slots' | 'flip' | 'highLow' | 'dice' | 'lucky' | 'flax' | 'roulette'
 type FloatingDelta = {
   id: number
   game: GameName
@@ -99,6 +102,10 @@ const SLOT_REEL_HEIGHT = 96
 const SLOT_SPIN_DURATION_MS = 1900
 const HIGH_LOW_CARD_COUNT = 13
 const HIGH_LOW_HOUSE_RETURN_BPS = 9600
+const ROULETTE_NUMBER_COUNT = 37
+const ROULETTE_HOUSE_RETURN_BPS = 9700
+const ROULETTE_MAX_COVERED_NUMBERS = 18
+const ROULETTE_RED_NUMBERS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36])
 const DEFAULT_GAME_SETTINGS: GameSettings = {
   slotsCost: 160,
   slotsTriplePayout: 1200,
@@ -125,6 +132,7 @@ const GAME_TITLES: Record<GameName, string> = {
   dice: 'Dice roll',
   lucky: 'Lucky pick',
   flax: 'FLAX-lodd',
+  roulette: 'Roulette',
 }
 const GAME_SETTING_LABELS: Record<keyof GameSettings, string> = {
   slotsCost: 'Slots cost',
@@ -193,6 +201,12 @@ const getHighLowPayout = (cost: number, card: number, guess: 'higher' | 'lower')
 
   return Math.floor((cost * HIGH_LOW_CARD_COUNT * HIGH_LOW_HOUSE_RETURN_BPS) / (winCount * 10000))
 }
+
+const getRoulettePayout = (cost: number, coveredCount: number) => (
+  coveredCount > 0
+    ? Math.floor((cost * ROULETTE_NUMBER_COUNT * ROULETTE_HOUSE_RETURN_BPS) / (coveredCount * 10000))
+    : 0
+)
 
 const formatMultiplier = (payout: number, cost: number) => (
   cost > 0 && payout > 0 ? `${(payout / cost).toFixed(2)}x` : '0.00x'
@@ -309,6 +323,9 @@ function App() {
   const [coinFace, setCoinFace] = useState('BD')
   const [highLowCard, setHighLowCard] = useState(() => Math.ceil(Math.random() * 13))
   const [highLowBet, setHighLowBet] = useState(String(DEFAULT_GAME_SETTINGS.highLowCost))
+  const [rouletteBet, setRouletteBet] = useState(String(DEFAULT_GAME_SETTINGS.highLowCost))
+  const [rouletteNumbers, setRouletteNumbers] = useState<number[]>([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36])
+  const [rouletteRoll, setRouletteRoll] = useState(0)
   const [diceRoll, setDiceRoll] = useState(6)
   const [luckyNumber, setLuckyNumber] = useState(1)
   const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket(DEFAULT_GAME_SETTINGS))
@@ -327,6 +344,7 @@ function App() {
     dice: false,
     lucky: false,
     flax: false,
+    roulette: false,
   })
   const [animatingGames, setAnimatingGames] = useState<Record<GameName, boolean>>({
     slots: false,
@@ -335,6 +353,7 @@ function App() {
     dice: false,
     lucky: false,
     flax: false,
+    roulette: false,
   })
   const autoplayLocks = useRef<Record<GameName, boolean>>({
     slots: false,
@@ -343,6 +362,7 @@ function App() {
     dice: false,
     lucky: false,
     flax: false,
+    roulette: false,
   })
   const autoplayTimeouts = useRef<Record<GameName, number | undefined>>({
     slots: undefined,
@@ -351,6 +371,7 @@ function App() {
     dice: undefined,
     lucky: undefined,
     flax: undefined,
+    roulette: undefined,
   })
   const toggleZeroBalanceUsersRef = useRef<() => void>(() => {})
   const gameLocks = useRef<Record<GameName, boolean>>({
@@ -360,6 +381,7 @@ function App() {
     dice: false,
     lucky: false,
     flax: false,
+    roulette: false,
   })
   const details = [
     'A small internet monument with a large amount of confidence.',
@@ -387,6 +409,10 @@ function App() {
     : activeCasinoUser?.highLowCard ?? highLowCard
   const highLowHigherPayout = getHighLowPayout(highLowStake, visibleHighLowCard, 'higher')
   const highLowLowerPayout = getHighLowPayout(highLowStake, visibleHighLowCard, 'lower')
+  const rouletteStake = Math.max(1, Math.floor(Number(rouletteBet) || gameSettings.highLowCost || 1))
+  const sortedRouletteNumbers = [...rouletteNumbers].sort((first, second) => first - second)
+  const roulettePayout = getRoulettePayout(rouletteStake, sortedRouletteNumbers.length)
+  const rouletteMultiplier = formatMultiplier(roulettePayout, rouletteStake)
 
   const posterStyle = {
     '--poster-spin': `${posterRotation}deg`,
@@ -437,6 +463,7 @@ function App() {
           setUsers(loadedUsers)
           setGameSettings(settings)
           setHighLowBet(String(settings.highLowCost))
+          setRouletteBet(String(settings.highLowCost))
           setFlaxTicket(createFlaxTicket(settings))
           setIsLoadingUsers(false)
         }
@@ -970,6 +997,10 @@ function App() {
       return `Costs ${gameSettings.luckyCost} coins. Pick 1, 2, or 3. If the machine picks the same number, you get ${gameSettings.luckyPayout}.`
     }
 
+    if (game === 'roulette') {
+      return 'Choose a stake and cover up to 18 numbers. More covered numbers win more often, but the multiplier drops. Zero is live, and payouts are capped below fair odds.'
+    }
+
     return `Costs ${gameSettings.flaxCost} coins. Scratch all 9 squares. Three equal prize numbers pays that prize.`
   }
 
@@ -1138,6 +1169,10 @@ function App() {
 
     if (game === 'lucky') {
       playLucky(pickRandomLuckyNumber())
+      return
+    }
+
+    if (game === 'roulette') {
       return
     }
 
@@ -1373,6 +1408,68 @@ function App() {
         })
       } finally {
         finishGame('lucky')
+      }
+    }, 2000)
+  }
+
+  const setRouletteCoveredNumbers = (numbers: number[]) => {
+    setRouletteNumbers([...new Set(numbers)]
+      .filter((number) => Number.isInteger(number) && number >= 0 && number < ROULETTE_NUMBER_COUNT)
+      .slice(0, ROULETTE_MAX_COVERED_NUMBERS))
+  }
+
+  const toggleRouletteNumber = (number: number) => {
+    setRouletteNumbers((numbers) => {
+      if (numbers.includes(number)) {
+        return numbers.filter((storedNumber) => storedNumber !== number)
+      }
+
+      if (numbers.length >= ROULETTE_MAX_COVERED_NUMBERS) {
+        return numbers
+      }
+
+      return [...numbers, number]
+    })
+  }
+
+  const playRoulette = () => {
+    const cost = rouletteStake
+    const username = beginGame('roulette', cost)
+
+    if (!username) {
+      return
+    }
+
+    window.setTimeout(async () => {
+      try {
+        const { user, game } = await apiRequest<PlayResponse>(
+          `/api/users/${encodeURIComponent(username)}/play`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ game: 'roulette', cost, numbers: sortedRouletteNumbers }),
+          },
+        )
+        const roll = game.roll ?? rouletteRoll
+        const payout = game.payout
+        const won = payout > 0
+
+        setRouletteRoll(roll)
+        upsertUser(user)
+        if (payout > 0) {
+          emitFloatingDelta('roulette', payout)
+        }
+        setGameResult({
+          title: won ? 'Roulette hit' : 'Roulette missed',
+          detail: `Rolled ${roll}. Covered ${game.coveredCount ?? sortedRouletteNumbers.length} numbers at ${formatMultiplier(game.availablePayout ?? payout, game.cost)}. ${won ? `Won ${payout}` : 'Won 0'}.`,
+        })
+      } catch (error) {
+        void syncUsers()
+        setGameResult({
+          title: 'Roulette rejected',
+          detail: error instanceof Error ? error.message : 'Could not play roulette.',
+        })
+      } finally {
+        finishGame('roulette')
       }
     }, 2000)
   }
@@ -1778,6 +1875,9 @@ function App() {
             <button type="button" onClick={() => goToPath('/send-money')}>
               Send money
             </button>
+            <button type="button" onClick={() => goToPath('/roulette')}>
+              Roulette
+            </button>
             <button type="button" onClick={() => goToPath('/')}>
               Home
             </button>
@@ -1862,6 +1962,178 @@ function App() {
     )
   }
 
+  const renderRoulettePage = () => {
+    const isOwnPage = Boolean(currentUser)
+    const rouletteChoices = Array.from({ length: ROULETTE_NUMBER_COUNT }, (_, number) => number)
+    const coveredPercent = ((sortedRouletteNumbers.length / ROULETTE_NUMBER_COUNT) * 100).toFixed(1)
+
+    if (isLoadingUsers) {
+      return (
+        <main className="user-page">
+          <section className="missing-user">
+            <p className="eyebrow">Loading database</p>
+            <h1>Fetching users</h1>
+          </section>
+        </main>
+      )
+    }
+
+    if (!currentUser) {
+      return (
+        <main className="user-page">
+          <section className="missing-user">
+            <p className="eyebrow">Login required</p>
+            <h1>Roulette</h1>
+            <button className="primary-action" type="button" onClick={() => goToPath('/')}>
+              Back home
+            </button>
+          </section>
+        </main>
+      )
+    }
+
+    return (
+      <main className="user-page roulette-page">
+        <nav className="site-nav user-nav" aria-label="Roulette navigation">
+          <button className="brand-mark nav-button" type="button" onClick={() => goToPath('/')}>
+            BD.FYI
+          </button>
+          <div className="nav-links">
+            <button type="button" onClick={() => goToPath('/send-money')}>
+              Send money
+            </button>
+            <button type="button" onClick={() => goToPath('/')}>
+              Home
+            </button>
+            <button type="button" onClick={() => goToPath(`/users/${currentUser.username}`)}>
+              My page
+            </button>
+            <button type="button" onClick={handleLogout}>
+              Log out
+            </button>
+          </div>
+        </nav>
+
+        <section className="casino-floor" aria-labelledby="roulette-title">
+          <div className="casino-copy">
+            <p className="eyebrow">Single-zero wheel</p>
+            <h1 id="roulette-title">Roulette</h1>
+          </div>
+
+          <div className="coin-vault">
+            <span>Your balance</span>
+            <strong>{currentUser.coins.toLocaleString()}</strong>
+            <em>coins</em>
+          </div>
+        </section>
+
+        <section className={`roulette-table ${animatingGames.roulette ? 'is-playing' : ''}`} aria-label="Roulette game">
+          {renderFloatingDeltas('roulette')}
+          <div className="roulette-wheel" aria-live="polite">
+            <span>Roll</span>
+            <strong className={ROULETTE_RED_NUMBERS.has(rouletteRoll) ? 'is-red' : rouletteRoll === 0 ? 'is-zero' : 'is-black'}>
+              {rouletteRoll}
+            </strong>
+          </div>
+
+          <div className="roulette-controls">
+            <div className="game-heading">
+              <p className="eyebrow">Stake: {rouletteStake}</p>
+              <h2>Pick numbers</h2>
+              {renderGameHelpButton('roulette')}
+            </div>
+
+            <label className="high-low-stake">
+              Stake
+              <input
+                inputMode="numeric"
+                min="1"
+                type="number"
+                value={rouletteBet}
+                disabled={!isOwnPage || animatingGames.roulette}
+                onChange={(event) => setRouletteBet(event.target.value)}
+              />
+            </label>
+
+            <div className="roulette-summary">
+              <span>{sortedRouletteNumbers.length} covered</span>
+              <strong>{rouletteMultiplier}</strong>
+              <span>{coveredPercent}% hit chance</span>
+            </div>
+
+            <div className="roulette-presets" aria-label="Roulette presets">
+              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers([...ROULETTE_RED_NUMBERS])}>
+                Red
+              </button>
+              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers(rouletteChoices.filter((number) => number > 0 && !ROULETTE_RED_NUMBERS.has(number)))}>
+                Black
+              </button>
+              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers(rouletteChoices.filter((number) => number % 2 === 1))}>
+                Odd
+              </button>
+              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers(rouletteChoices.filter((number) => number > 0 && number % 2 === 0))}>
+                Even
+              </button>
+              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers(rouletteChoices.filter((number) => number >= 1 && number <= 18))}>
+                1-18
+              </button>
+              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers(rouletteChoices.filter((number) => number >= 19))}>
+                19-36
+              </button>
+              <button type="button" disabled={animatingGames.roulette} onClick={() => setRouletteCoveredNumbers([])}>
+                Clear
+              </button>
+            </div>
+
+            <div className="roulette-numbers" aria-label="Roulette numbers">
+              {rouletteChoices.map((number) => (
+                <button
+                  className={`${rouletteNumbers.includes(number) ? 'is-selected' : ''} ${ROULETTE_RED_NUMBERS.has(number) ? 'is-red' : number === 0 ? 'is-zero' : 'is-black'}`}
+                  disabled={animatingGames.roulette}
+                  key={number}
+                  type="button"
+                  onClick={() => toggleRouletteNumber(number)}
+                >
+                  {number}
+                </button>
+              ))}
+            </div>
+
+            <button
+              className="game-button"
+              type="button"
+              disabled={!isOwnPage || animatingGames.roulette || sortedRouletteNumbers.length === 0}
+              onClick={playRoulette}
+            >
+              {animatingGames.roulette ? 'Spinning' : `Spin for ${rouletteMultiplier}`}
+            </button>
+          </div>
+
+          <aside className="game-result roulette-result" aria-live="polite">
+            <span>Result board</span>
+            <strong>{gameResult.title}</strong>
+            <p>{gameResult.detail}</p>
+          </aside>
+        </section>
+
+        {activeHelp === 'roulette' && (
+          <div className="help-overlay" role="presentation" onClick={() => setActiveHelp('')}>
+            <section
+              className="help-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="roulette-help-title"
+            >
+              <p className="eyebrow">Game rules</p>
+              <h2 id="roulette-help-title">Roulette</h2>
+              <p>{getGameHelpDescription('roulette')}</p>
+            </section>
+          </div>
+        )}
+      </main>
+    )
+  }
+
   const renderCasinoPage = () => {
     if (isLoadingUsers) {
       return (
@@ -1907,6 +2179,11 @@ function App() {
             {currentUsername && (
               <button type="button" onClick={() => goToPath('/send-money')}>
                 Send money
+              </button>
+            )}
+            {currentUsername && (
+              <button type="button" onClick={() => goToPath('/roulette')}>
+                Roulette
               </button>
             )}
             <button type="button" onClick={() => goToPath('/')}>
@@ -2398,6 +2675,10 @@ function App() {
     return renderSendMoneyPage()
   }
 
+  if (routePath === '/roulette') {
+    return renderRoulettePage()
+  }
+
   if (routePath.startsWith('/users/')) {
     return renderCasinoPage()
   }
@@ -2413,6 +2694,11 @@ function App() {
             {currentUser && (
               <button type="button" onClick={() => goToPath('/send-money')}>
                 Send money
+              </button>
+            )}
+            {currentUser && (
+              <button type="button" onClick={() => goToPath('/roulette')}>
+                Roulette
               </button>
             )}
             {menuItems.map((item) => (

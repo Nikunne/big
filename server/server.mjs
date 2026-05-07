@@ -38,7 +38,10 @@ const activeFlaxTickets = new Map()
 const activeHighLowCards = new Map()
 const slotSymbols = ['BD', 'FYI', '1000', '!!!', '777']
 const highLowHouseReturnBps = 9600
+const rouletteHouseReturnBps = 9700
 const cardCount = 13
+const rouletteNumberCount = 37
+const maxBetCost = 1000000000
 const defaultGameSettings = {
   slotsCost: 160,
   slotsTriplePayout: 1200,
@@ -120,8 +123,12 @@ const hashPassword = (password) => (
 const normalizeUsername = (username) => String(username ?? '').trim().toLowerCase()
 const normalizeSettingValue = (value) => Math.max(0, Math.floor(Number(value) || 0))
 const normalizeBetCost = (value, fallback) => {
+  if (value === undefined || value === null || value === '') {
+    return fallback
+  }
+
   const cost = Math.floor(Number(value) || 0)
-  return cost > 0 ? cost : fallback
+  return Number.isSafeInteger(cost) && cost > 0 && cost <= maxBetCost ? cost : 0
 }
 const getHighLowWinCount = (card, guess) => (
   guess === 'higher'
@@ -137,6 +144,20 @@ const getHighLowPayout = (cost, card, guess) => {
 
   return Math.floor((cost * cardCount * highLowHouseReturnBps) / (winCount * 10000))
 }
+const normalizeRouletteNumbers = (numbers) => {
+  if (!Array.isArray(numbers)) {
+    return []
+  }
+
+  return [...new Set(numbers.map((number) => Math.floor(Number(number))))].filter((number) => (
+    Number.isSafeInteger(number) && number >= 0 && number < rouletteNumberCount
+  ))
+}
+const getRoulettePayout = (cost, coveredCount) => (
+  coveredCount > 0
+    ? Math.floor((cost * rouletteNumberCount * rouletteHouseReturnBps) / (coveredCount * 10000))
+    : 0
+)
 const pickRandomCard = () => randomInt(1, cardCount + 1)
 const getActiveHighLowCard = (username) => {
   const storedCard = activeHighLowCards.get(username)
@@ -488,6 +509,10 @@ const publicFlaxTicket = (ticket) => ticket.map((square) => ({
 }))
 
 const runCoinGame = (username, cost, play) => {
+  if (!Number.isSafeInteger(cost) || cost <= 0 || cost > maxBetCost) {
+    return { error: 'Stake must be between 1 and 1,000,000,000 coins.' }
+  }
+
   db.exec('BEGIN IMMEDIATE')
   try {
     const debit = debitCoins.run(cost, username, cost)
@@ -933,6 +958,34 @@ createServer(async (request, response) => {
             const number = pickRandomLuckyNumber()
 
             return { payout: number === pick ? settings.luckyPayout : 0, number, pick }
+          })
+        } else if (game === 'roulette') {
+          const cost = normalizeBetCost(body.cost, settings.highLowCost)
+          const numbers = normalizeRouletteNumbers(body.numbers)
+
+          if (numbers.length === 0) {
+            sendJson(response, 400, { error: 'Choose at least one roulette number.' })
+            return
+          }
+
+          if (numbers.length > 18) {
+            sendJson(response, 400, { error: 'Roulette bets can cover 18 numbers or fewer.' })
+            return
+          }
+
+          result = runCoinGame(username, cost, () => {
+            const roll = randomInt(0, rouletteNumberCount)
+            const coveredCount = numbers.length
+            const availablePayout = getRoulettePayout(cost, coveredCount)
+            const won = numbers.includes(roll)
+
+            return {
+              payout: won ? availablePayout : 0,
+              availablePayout,
+              roll,
+              numbers,
+              coveredCount,
+            }
           })
         } else if (game === 'flax') {
           const user = getUser.get(username)

@@ -1506,6 +1506,174 @@ h1 {
     #ff72c8;
 }
 
+.roulette-page {
+  background:
+    repeating-linear-gradient(90deg, rgba(16, 16, 16, 0.1) 0 5px, transparent 5px 30px),
+    #0bbf7a;
+}
+
+.roulette-table {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.75fr) minmax(320px, 1.35fr);
+  gap: clamp(18px, 3vw, 30px);
+  max-width: 1180px;
+  margin: clamp(22px, 4vw, 38px) auto 0;
+  padding: clamp(16px, 3vw, 28px);
+  border: 6px solid #101010;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.16) 0 8px, transparent 8px 28px),
+    #0bbf7a;
+  box-shadow: 12px 12px 0 #101010;
+}
+
+.roulette-wheel {
+  display: grid;
+  min-height: 360px;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  border: 6px solid #101010;
+  border-radius: 50%;
+  background:
+    repeating-conic-gradient(#101010 0 10deg, #d91f2b 10deg 20deg, #fffdf5 20deg 30deg),
+    #101010;
+  box-shadow: inset 0 0 0 18px #0bbf7a, 8px 8px 0 #101010;
+  font-family: var(--mono);
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.roulette-table.is-playing .roulette-wheel {
+  animation: game-rumble 120ms steps(2, end) infinite;
+}
+
+.roulette-wheel span,
+.roulette-wheel strong {
+  display: grid;
+  place-items: center;
+  border: 5px solid #101010;
+  background: #fffdf5;
+  box-shadow: 6px 6px 0 #101010;
+}
+
+.roulette-wheel span {
+  padding: 8px 12px;
+}
+
+.roulette-wheel strong {
+  width: min(150px, 48vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  color: #fffdf5;
+  font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', var(--heading);
+  font-size: clamp(68px, 12vw, 130px);
+  line-height: 0.9;
+  text-shadow: 5px 5px 0 #101010;
+}
+
+.roulette-wheel strong.is-red,
+.roulette-numbers .is-red {
+  background: #d91f2b;
+  color: #fffdf5;
+}
+
+.roulette-wheel strong.is-black,
+.roulette-numbers .is-black {
+  background: #101010;
+  color: #fffdf5;
+}
+
+.roulette-wheel strong.is-zero,
+.roulette-numbers .is-zero {
+  background: #77ff68;
+  color: #101010;
+}
+
+.roulette-controls {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.roulette-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.roulette-summary span,
+.roulette-summary strong,
+.roulette-presets button {
+  min-height: 46px;
+  padding: 8px 10px;
+  border: 4px solid #101010;
+  background: #fffdf5;
+  box-shadow: 5px 5px 0 #101010;
+  font-family: var(--mono);
+  font-weight: 950;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.roulette-summary strong {
+  display: grid;
+  place-items: center;
+  background: #fff200;
+  font-size: 1.25rem;
+}
+
+.roulette-presets {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.roulette-presets button {
+  cursor: pointer;
+}
+
+.roulette-presets button:disabled {
+  background: #fffdf5;
+  cursor: not-allowed;
+}
+
+.roulette-numbers {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 5px solid #101010;
+  background: #101010;
+}
+
+.roulette-numbers button {
+  display: grid;
+  min-height: 48px;
+  place-items: center;
+  border: 4px solid #101010;
+  box-shadow: inset 0 0 0 0 #fff200;
+  cursor: pointer;
+  font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', var(--heading);
+  font-size: clamp(22px, 3vw, 34px);
+  line-height: 1;
+}
+
+.roulette-numbers button.is-selected {
+  box-shadow: inset 0 0 0 6px #fff200;
+  outline: 4px solid #00e1ff;
+}
+
+.roulette-numbers button:disabled {
+  cursor: not-allowed;
+}
+
+.roulette-result {
+  grid-column: 1 / -1;
+}
+
 .game-reels {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -2165,7 +2333,8 @@ button:focus-visible {
   .top-list-ranks,
   .transfer-user-list,
   .price-admin-grid,
-  .price-admin-header {
+  .price-admin-header,
+  .roulette-table {
     grid-template-columns: 1fr;
   }
 
@@ -2243,6 +2412,18 @@ button:focus-visible {
 
   .game-result {
     grid-column: auto;
+  }
+
+  .roulette-wheel {
+    min-height: 280px;
+  }
+
+  .roulette-presets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .roulette-numbers {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .admin-header,
