@@ -345,6 +345,7 @@ function App() {
   const [currentPassword, setCurrentPassword] = useState('')
   const [nextPassword, setNextPassword] = useState('')
   const [passwordMessage, setPasswordMessage] = useState('')
+  const [buyCoinsMessage, setBuyCoinsMessage] = useState('')
   const [walletMessage, setWalletMessage] = useState('')
   const [withdrawAddress, setWithdrawAddress] = useState('')
   const [savedWithdrawalAddressInput, setSavedWithdrawalAddressInput] = useState('')
@@ -581,6 +582,19 @@ function App() {
   }, [routePath])
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const payment = params.get('payment')
+
+    if (payment === 'success') {
+      setBuyCoinsMessage('Payment successful! Your coins will be credited shortly.')
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (payment === 'cancelled') {
+      setBuyCoinsMessage('Payment cancelled.')
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
+
+  useEffect(() => {
     const timeouts = autoplayTimeouts.current
 
     return () => {
@@ -788,6 +802,20 @@ function App() {
       setWalletMessage(credited > 0 ? `Credited ${credited.toLocaleString()} coins.` : 'No new deposits.')
     } catch (error) {
       setWalletMessage(error instanceof Error ? error.message : 'Could not check wallet.')
+    }
+  }
+
+  const buyCoins = async (nokAmount: number) => {
+    setBuyCoinsMessage('Redirecting to payment...')
+
+    try {
+      const { url } = await apiRequest<{ url: string }>('/api/stripe/create-checkout', {
+        method: 'POST',
+        body: JSON.stringify({ nokAmount }),
+      })
+      window.location.href = url
+    } catch (error) {
+      setBuyCoinsMessage(error instanceof Error ? error.message : 'Could not start payment.')
     }
   }
 
@@ -2590,6 +2618,29 @@ function App() {
             <em>coins</em>
           </div>
         </section>
+
+        {isOwnPage && (
+          <section className="wallet-panel buy-coins-panel" aria-labelledby="buy-coins-title">
+            <div className="wallet-info">
+              <p className="eyebrow">Real money</p>
+              <h2 id="buy-coins-title">Buy coins</h2>
+              <p>10 coins per NOK</p>
+              <div className="buy-coins-buttons">
+                {[10, 50, 100, 500].map((nok) => (
+                  <button
+                    key={nok}
+                    className="game-button"
+                    type="button"
+                    onClick={() => buyCoins(nok)}
+                  >
+                    {nok} NOK → {(nok * 10).toLocaleString()} coins
+                  </button>
+                ))}
+              </div>
+              {buyCoinsMessage && <p className="form-message">{buyCoinsMessage}</p>}
+            </div>
+          </section>
+        )}
 
         {isOwnPage && (
           <section className="wallet-panel" aria-labelledby="wallet-title">

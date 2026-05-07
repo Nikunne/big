@@ -4,6 +4,7 @@ import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
+import Stripe from 'stripe'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const dataDir = join(__dirname, '..', 'data')
@@ -33,6 +34,12 @@ const uncCoinApiBaseUrl = String(process.env.UNC_WEB_API_BASE_URL ?? process.env
 const uncCoinApiToken = String(process.env.UNC_WEB_API_TOKEN ?? '')
 const uncCoinHouseAddress = String(process.env.UNC_BETTING_SHARK_ADDRESS ?? '')
 const uncDepositPollMs = Math.max(5000, Number(process.env.UNC_DEPOSIT_POLL_MS ?? 60000))
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY ?? ''
+const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? ''
+const stripeSuccessUrl = process.env.STRIPE_SUCCESS_URL ?? 'http://localhost:5173'
+const stripeCancelUrl = process.env.STRIPE_CANCEL_URL ?? 'http://localhost:5173'
+const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null
+const STRIPE_COINS_PER_NOK = 10
 const sessions = new Map()
 const activeFlaxTickets = new Map()
 const activeHighLowCards = new Map()
@@ -670,6 +677,16 @@ const readJson = async (request) => {
   }
 
   return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+}
+
+const readRaw = async (request) => {
+  const chunks = []
+
+  for await (const chunk of request) {
+    chunks.push(chunk)
+  }
+
+  return Buffer.concat(chunks)
 }
 
 createServer(async (request, response) => {
@@ -1360,6 +1377,81 @@ createServer(async (request, response) => {
         sendJson(response, 200, { user: publicUser(getUser.get(username)) })
         return
       }
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/stripe/create-checkout') {
+      if (!stripe) {
+        sendJson(response, 503, { error: 'Stripe is not configured.' })
+        return
+      }
+
+      const username = getSessionUsername(request)
+
+      if (!username) {
+        sendJson(response, 401, { error: 'Session expired.' })
+        return
+      }
+
+      const body = await readJson(request)
+      const nokAmount = Math.max(1, Math.floor(Number(body.nokAmount) || 1))
+      const coins = nokAmount * STRIPE_COINS_PER_NOK
+
+      const session = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        currency: 'nok',
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: 'nok',
+              unit_amount: nokAmount * 100,
+              product_data: {
+                name: `${coins.toLocaleString()} Casino Coins`,
+                description: `${nokAmount} NOK = ${coins} coins`,
+              },
+            },
+          },
+        ],
+        metadata: { username, coins: String(coins) },
+        success_url: `${stripeSuccessUrl}?payment=success`,
+        cancel_url: `${stripeCancelUrl}?payment=cancelled`,
+      })
+
+      sendJson(response, 200, { url: session.url })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/stripe/webhook') {
+      if (!stripe) {
+        sendJson(response, 503, { error: 'Stripe is not configured.' })
+        return
+      }
+
+      const rawBody = await readRaw(request)
+      const sig = request.headers['stripe-signature'] ?? ''
+
+      let event
+
+      try {
+        event = stripe.webhooks.constructEvent(rawBody, sig, stripeWebhookSecret)
+      } catch {
+        sendJson(response, 400, { error: 'Invalid webhook signature.' })
+        return
+      }
+
+      if (event.type === 'checkout.session.completed') {
+        const session = event.data.object
+        const username = session.metadata?.username ?? ''
+        const coins = Math.max(0, Math.floor(Number(session.metadata?.coins) || 0))
+
+        if (username && coins > 0 && getUser.get(username)) {
+          creditCoins.run(coins, username)
+          console.log(`Stripe: credited ${coins} coins to ${username}`)
+        }
+      }
+
+      sendJson(response, 200, { received: true })
+      return
     }
 
     sendJson(response, 404, { error: 'Not found' })

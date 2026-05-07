@@ -5,5 +5,8 @@
     "server": "node server/server.mjs",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build"
+  },
+  "dependencies": {
+    "stripe": "^22.1.1"
   }
 }
