@@ -36,6 +36,7 @@ const uncDepositPollMs = Math.max(5000, Number(process.env.UNC_DEPOSIT_POLL_MS ?
 const sessions = new Map()
 const activeFlaxTickets = new Map()
 const activeHighLowCards = new Map()
+const activeBlackjackGames = new Map()
 const slotSymbols = ['BD', 'FYI', '1000', '!!!', '777']
 const highLowHouseReturnBps = 9600
 const rouletteHouseReturnBps = 9700
@@ -162,6 +163,105 @@ const getRoulettePayout = (cost, coveredCount) => {
   if (coveredCount === 18) return cost * 2
   return Math.floor((cost * rouletteNumberCount * rouletteHouseReturnBps) / (coveredCount * 10000))
 }
+// Blackjack helpers
+const BJ_SUITS = ['♠', '♥', '♦', '♣']
+const BJ_RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+
+const bjCardValue = (r) => {
+  if (r === 'A') return 11
+  if (r === '10' || r === 'J' || r === 'Q' || r === 'K') return 10
+  return parseInt(r, 10)
+}
+
+const bjHandValue = (cards) => {
+  let total = 0, aces = 0
+  for (const { r } of cards) {
+    total += bjCardValue(r)
+    if (r === 'A') aces++
+  }
+  while (total > 21 && aces > 0) { total -= 10; aces-- }
+  return total
+}
+
+const bjIsSoft = (cards) => {
+  let total = 0, aces = 0
+  for (const { r } of cards) { total += bjCardValue(r); if (r === 'A') aces++ }
+  let reduced = 0
+  while (total > 21 && aces > reduced) { total -= 10; reduced++ }
+  return aces > reduced
+}
+
+const bjIsBlackjack = (cards) => cards.length === 2 && bjHandValue(cards) === 21
+
+const bjShuffle = (deck) => {
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = randomInt(0, i + 1);
+    [deck[i], deck[j]] = [deck[j], deck[i]]
+  }
+  return deck
+}
+
+const bjCreateDeck = () => {
+  const deck = []
+  for (let d = 0; d < 6; d++) {
+    for (const s of BJ_SUITS) {
+      for (const r of BJ_RANKS) {
+        deck.push({ r, s })
+      }
+    }
+  }
+  return bjShuffle(deck)
+}
+
+const bjDraw = (game) => game.deck.pop()
+
+const bjDealerShouldHit = (cards) => {
+  const v = bjHandValue(cards)
+  if (v < 17) return true
+  if (v > 17) return false
+  return bjIsSoft(cards) // hit soft 17
+}
+
+const bjPlayDealer = (game) => {
+  while (bjDealerShouldHit(game.dealer)) {
+    game.dealer.push(bjDraw(game))
+  }
+}
+
+const bjDetermineResult = (game) => {
+  const pv = bjHandValue(game.player)
+  const dv = bjHandValue(game.dealer)
+  const playerBJ = bjIsBlackjack(game.player) && !game.doubled
+  const dealerBJ = bjIsBlackjack(game.dealer)
+  const bet = game.bet
+
+  if (playerBJ && dealerBJ) return { result: 'push', payout: bet }
+  if (dealerBJ) return { result: 'dealerBlackjack', payout: 0 }
+  if (playerBJ) return { result: 'blackjack', payout: Math.floor(bet * 2.5) }
+  if (pv > 21) return { result: 'bust', payout: 0 }
+  if (dv > 21) return { result: 'dealerBust', payout: bet * 2 }
+  if (pv > dv) return { result: 'win', payout: bet * 2 }
+  if (pv === dv) return { result: 'push', payout: bet }
+  return { result: 'lose', payout: 0 }
+}
+
+const bjPublicGame = (game) => ({
+  phase: game.phase,
+  playerCards: game.player,
+  dealerCards: game.phase === 'player'
+    ? game.dealer.map((c, i) => i === 1 ? { r: '?', s: '?', h: true } : c)
+    : game.dealer,
+  playerValue: bjHandValue(game.player),
+  dealerValue: game.phase === 'player'
+    ? bjHandValue([game.dealer[0]])
+    : bjHandValue(game.dealer),
+  result: game.result,
+  payout: game.payout,
+  bet: game.bet,
+  doubled: game.doubled,
+  canDouble: game.phase === 'player' && game.player.length === 2,
+})
+
 const pickRandomCard = () => randomInt(1, cardCount + 1)
 const getActiveHighLowCard = (username) => {
   const storedCard = activeHighLowCards.get(username)
@@ -1090,6 +1190,142 @@ createServer(async (request, response) => {
             finished: isFinished,
           },
         })
+        return
+      }
+
+      if (request.method === 'POST' && action === 'blackjack') {
+        if (getSessionUsername(request) !== username) {
+          sendJson(response, 403, { error: 'You can only play from your own account.' })
+          return
+        }
+
+        const body = await readJson(request)
+        const bjAction = String(body.action ?? '')
+
+        if (bjAction === 'deal') {
+          const bet = normalizeBetCost(body.bet, 100)
+
+          if (!bet) {
+            sendJson(response, 400, { error: 'Invalid bet amount.' })
+            return
+          }
+
+          db.exec('BEGIN IMMEDIATE')
+          try {
+            const debit = debitCoins.run(bet, username, bet)
+            if (debit.changes === 0) {
+              db.exec('ROLLBACK')
+              sendJson(response, 400, { error: `This game costs ${bet.toLocaleString()} coins.` })
+              return
+            }
+            db.exec('COMMIT')
+          } catch (e) {
+            db.exec('ROLLBACK')
+            throw e
+          }
+
+          const deck = bjCreateDeck()
+          const player = [bjDraw({ deck }), bjDraw({ deck })]
+          const dealer = [bjDraw({ deck }), bjDraw({ deck })]
+          const game = { deck, player, dealer, bet, doubled: false, phase: 'player', result: null, payout: 0 }
+
+          const playerBJ = bjIsBlackjack(player)
+          const dealerBJ = bjIsBlackjack(dealer)
+
+          if (playerBJ || dealerBJ) {
+            const outcome = bjDetermineResult(game)
+            game.result = outcome.result
+            game.payout = outcome.payout
+            game.phase = 'done'
+            if (outcome.payout > 0) adjustCoins.run(outcome.payout, username)
+          }
+
+          activeBlackjackGames.set(username, game)
+          sendJson(response, 200, { user: publicUser(getUser.get(username)), game: bjPublicGame(game) })
+          return
+        }
+
+        const game = activeBlackjackGames.get(username)
+
+        if (!game || game.phase !== 'player') {
+          sendJson(response, 400, { error: 'No active blackjack game. Deal first.' })
+          return
+        }
+
+        if (bjAction === 'hit') {
+          game.player.push(bjDraw(game))
+          const pv = bjHandValue(game.player)
+
+          if (pv > 21) {
+            game.result = 'bust'
+            game.payout = 0
+            game.phase = 'done'
+            activeBlackjackGames.delete(username)
+          } else if (pv === 21) {
+            bjPlayDealer(game)
+            const outcome = bjDetermineResult(game)
+            game.result = outcome.result
+            game.payout = outcome.payout
+            game.phase = 'done'
+            if (outcome.payout > 0) adjustCoins.run(outcome.payout, username)
+            activeBlackjackGames.delete(username)
+          } else {
+            activeBlackjackGames.set(username, game)
+          }
+
+          sendJson(response, 200, { user: publicUser(getUser.get(username)), game: bjPublicGame(game) })
+          return
+        }
+
+        if (bjAction === 'stand') {
+          bjPlayDealer(game)
+          const outcome = bjDetermineResult(game)
+          game.result = outcome.result
+          game.payout = outcome.payout
+          game.phase = 'done'
+          if (outcome.payout > 0) adjustCoins.run(outcome.payout, username)
+          activeBlackjackGames.delete(username)
+          sendJson(response, 200, { user: publicUser(getUser.get(username)), game: bjPublicGame(game) })
+          return
+        }
+
+        if (bjAction === 'double') {
+          if (game.player.length !== 2) {
+            sendJson(response, 400, { error: 'Can only double down on first two cards.' })
+            return
+          }
+
+          db.exec('BEGIN IMMEDIATE')
+          try {
+            const debit = debitCoins.run(game.bet, username, game.bet)
+            if (debit.changes === 0) {
+              db.exec('ROLLBACK')
+              sendJson(response, 400, { error: `Double requires ${game.bet.toLocaleString()} more coins.` })
+              return
+            }
+            db.exec('COMMIT')
+          } catch (e) {
+            db.exec('ROLLBACK')
+            throw e
+          }
+
+          game.bet *= 2
+          game.doubled = true
+          game.player.push(bjDraw(game))
+
+          if (bjHandValue(game.player) <= 21) bjPlayDealer(game)
+
+          const outcome = bjDetermineResult(game)
+          game.result = outcome.result
+          game.payout = outcome.payout
+          game.phase = 'done'
+          if (outcome.payout > 0) adjustCoins.run(outcome.payout, username)
+          activeBlackjackGames.delete(username)
+          sendJson(response, 200, { user: publicUser(getUser.get(username)), game: bjPublicGame(game) })
+          return
+        }
+
+        sendJson(response, 400, { error: 'Unknown blackjack action.' })
         return
       }
 

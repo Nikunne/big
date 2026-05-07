@@ -47,6 +47,20 @@ type FlaxScratchResponse = {
     finished: boolean
   }
 }
+type BjCard = { r: string; s: string; h?: boolean }
+type BjGameState = {
+  phase: 'player' | 'done'
+  playerCards: BjCard[]
+  dealerCards: BjCard[]
+  playerValue: number
+  dealerValue: number
+  result: string | null
+  payout: number
+  bet: number
+  doubled: boolean
+  canDouble: boolean
+}
+type BjResponse = { user: UserRecord; game: BjGameState }
 type WithdrawResponse = {
   user: UserRecord
   transaction: {
@@ -362,6 +376,10 @@ function App() {
   const [rouletteLastPayout, setRouletteLastPayout] = useState(0)
   const [rouletteHasResult, setRouletteHasResult] = useState(false)
   const [rouletteBallEnd, setRouletteBallEnd] = useState(0)
+  const [bjBet, setBjBet] = useState('100')
+  const [bjGame, setBjGame] = useState<BjGameState | null>(null)
+  const [bjLoading, setBjLoading] = useState(false)
+  const [bjError, setBjError] = useState('')
   const [diceRoll, setDiceRoll] = useState(6)
   const [luckyNumber, setLuckyNumber] = useState(1)
   const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket(DEFAULT_GAME_SETTINGS))
@@ -1990,6 +2008,9 @@ function App() {
             <button type="button" onClick={() => goToPath('/roulette')}>
               Roulette
             </button>
+            <button type="button" onClick={() => goToPath('/blackjack')}>
+              Blackjack
+            </button>
             <button type="button" onClick={() => goToPath('/')}>
               Home
             </button>
@@ -2298,6 +2319,190 @@ function App() {
     )
   }
 
+  const bjSendAction = async (action: string, bet?: number) => {
+    if (!currentUser) return
+    setBjLoading(true)
+    setBjError('')
+    try {
+      const body: Record<string, unknown> = { action }
+      if (bet !== undefined) body.bet = bet
+      const result = await apiRequest<BjResponse>(
+        `/api/users/${encodeURIComponent(currentUser.username)}/blackjack`,
+        { method: 'POST', body: JSON.stringify(body) },
+      )
+      upsertUser(result.user)
+      setBjGame(result.game)
+      if (result.game.phase === 'done') {
+        const net = result.game.payout - result.game.bet
+        if (net !== 0) emitFloatingDelta('roulette' as GameName, result.game.payout)
+      }
+    } catch (error) {
+      setBjError(error instanceof Error ? error.message : 'Something went wrong.')
+    } finally {
+      setBjLoading(false)
+    }
+  }
+
+  const renderBjCard = (card: BjCard, index: number, animDelay = 0) => {
+    const isRed = card.s === '♥' || card.s === '♦'
+    if (card.h) {
+      return (
+        <div key={`hidden-${index}`} className="bj-card bj-card-back" style={{ animationDelay: `${animDelay}ms` }} aria-hidden="true">
+          <div className="bj-card-back-pattern" />
+        </div>
+      )
+    }
+    return (
+      <div
+        key={`${card.r}${card.s}`}
+        className={`bj-card${isRed ? ' is-red' : ''}`}
+        style={{ animationDelay: `${animDelay}ms` }}
+        aria-label={`${card.r} of ${card.s}`}
+      >
+        <span className="bj-rank">{card.r}</span>
+        <span className="bj-suit">{card.s}</span>
+      </div>
+    )
+  }
+
+  const bjResultLabel = (result: string) => {
+    switch (result) {
+      case 'blackjack': return 'BLACKJACK! 3:2'
+      case 'win': return 'YOU WIN'
+      case 'dealerBust': return 'DEALER BUST'
+      case 'bust': return 'BUST'
+      case 'lose': return 'DEALER WINS'
+      case 'dealerBlackjack': return 'DEALER BLACKJACK'
+      case 'push': return 'PUSH'
+      default: return result.toUpperCase()
+    }
+  }
+
+  const renderBlackjackPage = () => {
+    const betAmount = Math.max(1, Math.floor(Number(bjBet) || 100))
+    const isPlayerTurn = bjGame?.phase === 'player'
+    const isDone = bjGame?.phase === 'done'
+    const result = bjGame?.result ?? null
+    const isWin = result === 'blackjack' || result === 'win' || result === 'dealerBust'
+    const isPush = result === 'push'
+    const netGain = bjGame ? (isWin || isPush ? bjGame.payout - bjGame.bet : -bjGame.bet) : 0
+
+    return (
+      <main className="blackjack-page">
+        <nav className="bj-nav">
+          <button type="button" className="bj-nav-back" onClick={() => goToPath('/')}>← Home</button>
+          {currentUser && (
+            <div className="bj-balance">
+              <span>{currentUser.coins.toLocaleString()}</span>
+              <em>coins</em>
+            </div>
+          )}
+        </nav>
+
+        <div className="bj-title">
+          <h1>Blackjack</h1>
+          <p>Dealer hits soft 17 · Blackjack pays 3:2</p>
+        </div>
+
+        <div className="bj-table">
+          {/* Dealer area */}
+          <div className="bj-dealer-area">
+            <div className="bj-area-header">
+              <span className="bj-area-label">DEALER</span>
+              {bjGame && (
+                <span className={`bj-value-badge${bjGame.dealerValue > 21 ? ' is-bust' : bjGame.dealerValue === 21 ? ' is-max' : ''}`}>
+                  {bjGame.dealerValue}
+                </span>
+              )}
+            </div>
+            <div className="bj-hand bj-dealer-hand">
+              {bjGame
+                ? bjGame.dealerCards.map((card, i) => renderBjCard(card, i, i * 120))
+                : <div className="bj-empty-hand">Waiting…</div>}
+            </div>
+          </div>
+
+          {/* Result banner */}
+          {isDone && result && (
+            <div className={`bj-result-banner${isWin ? ' is-win' : isPush ? ' is-push' : ' is-lose'}`}>
+              <strong>{bjResultLabel(result)}</strong>
+              <span className="bj-net">
+                {netGain > 0 ? `+${netGain.toLocaleString()}` : netGain.toLocaleString()}
+              </span>
+            </div>
+          )}
+
+          {!bjGame && !bjLoading && (
+            <div className="bj-start-prompt">Place your bet and deal to start</div>
+          )}
+
+          {bjLoading && <div className="bj-loading">Dealing…</div>}
+
+          {/* Player area */}
+          <div className="bj-player-area">
+            <div className="bj-area-header">
+              <span className="bj-area-label">YOU</span>
+              {bjGame && (
+                <span className={`bj-value-badge${bjGame.playerValue > 21 ? ' is-bust' : bjGame.playerValue === 21 ? ' is-max' : ''}`}>
+                  {bjGame.playerValue}
+                </span>
+              )}
+            </div>
+            <div className="bj-hand bj-player-hand">
+              {bjGame
+                ? bjGame.playerCards.map((card, i) => renderBjCard(card, i, i * 120))
+                : <div className="bj-empty-hand">No cards yet</div>}
+            </div>
+          </div>
+
+          {/* Actions during player turn */}
+          {isPlayerTurn && (
+            <div className="bj-actions">
+              <button className="bj-btn bj-btn-hit" onClick={() => bjSendAction('hit')} disabled={bjLoading}>HIT</button>
+              <button className="bj-btn bj-btn-stand" onClick={() => bjSendAction('stand')} disabled={bjLoading}>STAND</button>
+              {bjGame?.canDouble && (
+                <button
+                  className="bj-btn bj-btn-double"
+                  onClick={() => bjSendAction('double')}
+                  disabled={bjLoading || !currentUser || currentUser.coins < bjGame.bet}
+                >
+                  DOUBLE
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Deal controls */}
+          {(!bjGame || isDone) && (
+            <div className="bj-deal-controls">
+              <div className="bj-stake-row">
+                <label className="bj-stake-label" htmlFor="bj-bet">STAKE</label>
+                <input
+                  id="bj-bet"
+                  className="bj-stake-input"
+                  type="number"
+                  min={1}
+                  value={bjBet}
+                  onChange={(e) => setBjBet(e.target.value)}
+                  disabled={bjLoading}
+                />
+              </div>
+              <button
+                className="bj-btn bj-btn-deal"
+                onClick={() => bjSendAction('deal', betAmount)}
+                disabled={bjLoading || !currentUser || (currentUser?.coins ?? 0) < betAmount}
+              >
+                {isDone ? 'DEAL AGAIN' : 'DEAL'}
+              </button>
+            </div>
+          )}
+
+          {bjError && <p className="bj-error">{bjError}</p>}
+        </div>
+      </main>
+    )
+  }
+
   const renderCasinoPage = () => {
     if (isLoadingUsers) {
       return (
@@ -2348,6 +2553,11 @@ function App() {
             {currentUsername && (
               <button type="button" onClick={() => goToPath('/roulette')}>
                 Roulette
+              </button>
+            )}
+            {currentUsername && (
+              <button type="button" onClick={() => goToPath('/blackjack')}>
+                Blackjack
               </button>
             )}
             <button type="button" onClick={() => goToPath('/')}>
@@ -2867,6 +3077,10 @@ function App() {
     return renderRoulettePage()
   }
 
+  if (routePath === '/blackjack') {
+    return renderBlackjackPage()
+  }
+
   if (routePath.startsWith('/users/')) {
     return renderCasinoPage()
   }
@@ -2887,6 +3101,11 @@ function App() {
             {currentUser && (
               <button type="button" onClick={() => goToPath('/roulette')}>
                 Roulette
+              </button>
+            )}
+            {currentUser && (
+              <button type="button" onClick={() => goToPath('/blackjack')}>
+                Blackjack
               </button>
             )}
             {menuItems.map((item) => (
