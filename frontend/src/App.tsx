@@ -344,7 +344,8 @@ function App() {
   const [rouletteBet, setRouletteBet] = useState(String(DEFAULT_GAME_SETTINGS.highLowCost))
   const [rouletteNumbers, setRouletteNumbers] = useState<number[]>([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36])
   const [rouletteRoll, setRouletteRoll] = useState(0)
-  const [rouletteSpin, setRouletteSpin] = useState(0)
+  const [rouletteWheelRotation, setRouletteWheelRotation] = useState(0)
+  const [rouletteWheelSpinStart, setRouletteWheelSpinStart] = useState(0)
   const [diceRoll, setDiceRoll] = useState(6)
   const [luckyNumber, setLuckyNumber] = useState(1)
   const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket(DEFAULT_GAME_SETTINGS))
@@ -1499,9 +1500,11 @@ function App() {
     )
       .then(({ user, game }) => {
         const roll = game.roll ?? rouletteRoll
+        const nextWheelRotation = rouletteWheelRotation + 1440 + 137
 
         setRouletteRoll(roll)
-        setRouletteSpin((spin) => spin + 1)
+        setRouletteWheelSpinStart(rouletteWheelRotation)
+        setRouletteWheelRotation(nextWheelRotation)
         window.setTimeout(() => {
           const payout = game.payout
           const won = payout > 0
@@ -2019,8 +2022,8 @@ function App() {
     const isOwnPage = Boolean(currentUser)
     const coveredPercent = ((sortedRouletteNumbers.length / ROULETTE_NUMBER_COUNT) * 100).toFixed(1)
     const rouletteRollIndex = Math.max(0, ROULETTE_WHEEL_ORDER.indexOf(rouletteRoll))
-    const rouletteSpinEnd = 1440 + rouletteSpin * 137
     const roulettePocketAngle = (rouletteRollIndex * 360) / ROULETTE_NUMBER_COUNT
+    const rouletteBallEnd = rouletteWheelRotation + roulettePocketAngle
     const roulettePresets = [
       { label: 'White', numbers: [...ROULETTE_WHITE_NUMBERS] },
       { label: 'Black', numbers: ROULETTE_CHOICES.filter((number) => number > 0 && !ROULETTE_WHITE_NUMBERS.has(number)) },
@@ -2097,8 +2100,12 @@ function App() {
             className="roulette-wheel"
             aria-live="polite"
             style={{
-              '--roulette-spin-end': `${rouletteSpinEnd}deg`,
-              '--roulette-ball-end': `${rouletteSpinEnd + roulettePocketAngle}deg`,
+              '--roulette-wheel-rest': `${rouletteWheelRotation}deg`,
+              '--roulette-spin-start': `${rouletteWheelSpinStart}deg`,
+              '--roulette-spin-end': `${rouletteWheelRotation}deg`,
+              '--roulette-ball-start': `${rouletteBallEnd - 720}deg`,
+              '--roulette-ball-mid': `${rouletteBallEnd - 160}deg`,
+              '--roulette-ball-end': `${rouletteBallEnd}deg`,
             } as CSSProperties}
           >
             <div className="roulette-pocket-ring" aria-hidden="true">

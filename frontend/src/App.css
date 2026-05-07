@@ -1544,7 +1544,11 @@ h1 {
 }
 
 .roulette-wheel {
+  --roulette-wheel-rest: 0deg;
+  --roulette-spin-start: 0deg;
   --roulette-spin-end: 1440deg;
+  --roulette-ball-start: 720deg;
+  --roulette-ball-mid: 1280deg;
   --roulette-ball-end: 1440deg;
   position: relative;
   display: grid;
@@ -1616,6 +1620,7 @@ h1 {
       #101010 340.5405deg 350.2703deg,
       #fffdf5 350.2703deg 360deg
     );
+  transform: rotate(var(--roulette-wheel-rest));
 }
 
 .roulette-pocket-ring {
@@ -1623,6 +1628,7 @@ h1 {
   inset: clamp(20px, 4vw, 46px);
   border-radius: 50%;
   pointer-events: none;
+  transform: rotate(var(--roulette-wheel-rest));
   z-index: 2;
 }
 
@@ -2460,7 +2466,7 @@ button:focus-visible {
 
 @keyframes roulette-wheel-spin {
   from {
-    transform: rotate(0deg);
+    transform: rotate(var(--roulette-spin-start));
   }
   to {
     transform: rotate(var(--roulette-spin-end));
@@ -2469,10 +2475,10 @@ button:focus-visible {
 
 @keyframes roulette-ball-spin {
   0% {
-    transform: rotate(calc(var(--roulette-ball-end) - 720deg)) translateY(calc(-1 * min(33vw, 246px))) rotate(calc(-1 * (var(--roulette-ball-end) - 720deg)));
+    transform: rotate(var(--roulette-ball-start)) translateY(calc(-1 * min(33vw, 246px))) rotate(calc(-1 * var(--roulette-ball-start)));
   }
   72% {
-    transform: rotate(calc(var(--roulette-ball-end) - 160deg)) translateY(calc(-1 * min(33vw, 246px))) rotate(calc(-1 * (var(--roulette-ball-end) - 160deg)));
+    transform: rotate(var(--roulette-ball-mid)) translateY(calc(-1 * min(33vw, 246px))) rotate(calc(-1 * var(--roulette-ball-mid)));
   }
   100% {
     transform: rotate(var(--roulette-ball-end)) translateY(calc(-1 * min(33vw, 246px))) rotate(calc(-1 * var(--roulette-ball-end)));
