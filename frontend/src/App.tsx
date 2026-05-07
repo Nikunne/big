@@ -2148,11 +2148,6 @@ function App() {
               {animatingGames.roulette ? '?' : rouletteRoll}
             </strong>
           </div>
-          <div className={`roulette-outcome-card ${rouletteHasResult ? 'has-result' : ''} ${rouletteLastWon ? 'is-win' : 'is-loss'}`} aria-live="polite">
-            <span>{rouletteHasResult ? (rouletteLastWon ? 'Won' : 'Lost') : 'Result pending'}</span>
-            <strong>{rouletteHasResult ? (rouletteLastWon ? `+${rouletteLastPayout.toLocaleString()}` : '0') : '-'}</strong>
-            <em>{rouletteHasResult ? `Rolled ${rouletteRoll}` : 'Spin the wheel'}</em>
-          </div>
           <div className="roulette-action-stack">
             <button
               className="game-button roulette-spin-button"
@@ -2163,6 +2158,11 @@ function App() {
               {animatingGames.roulette ? 'Spinning' : `Spin for ${rouletteMultiplier}`}
             </button>
             {renderAutoplayButton('roulette')}
+          </div>
+          <div className={`roulette-outcome-card ${rouletteHasResult ? 'has-result' : ''} ${rouletteLastWon ? 'is-win' : 'is-loss'}`} aria-live="polite">
+            <span>{rouletteHasResult ? (rouletteLastWon ? 'Won' : 'Lost') : 'Result pending'}</span>
+            <strong>{rouletteHasResult ? (rouletteLastWon ? `+${rouletteLastPayout.toLocaleString()}` : '0') : '-'}</strong>
+            <em>{rouletteHasResult ? `Rolled ${rouletteRoll}` : 'Spin the wheel'}</em>
           </div>
 
           <div className="roulette-controls">
