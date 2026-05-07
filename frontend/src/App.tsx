@@ -2620,26 +2620,22 @@ function App() {
         </section>
 
         {isOwnPage && (
-          <section className="wallet-panel buy-coins-panel" aria-labelledby="buy-coins-title">
-            <div className="wallet-info">
-              <p className="eyebrow">Real money</p>
-              <h2 id="buy-coins-title">Buy coins</h2>
-              <p>10 coins per NOK</p>
-              <div className="buy-coins-buttons">
-                {[10, 50, 100, 500].map((nok) => (
-                  <button
-                    key={nok}
-                    className="game-button"
-                    type="button"
-                    onClick={() => buyCoins(nok)}
-                  >
-                    {nok} NOK → {(nok * 10).toLocaleString()} coins
-                  </button>
-                ))}
-              </div>
-              {buyCoinsMessage && <p className="form-message">{buyCoinsMessage}</p>}
+          <div className="buy-coins-bar">
+            <span className="buy-coins-label">Buy coins</span>
+            <div className="buy-coins-buttons">
+              {[10, 50, 100, 500].map((nok) => (
+                <button
+                  key={nok}
+                  className="game-button buy-coins-button"
+                  type="button"
+                  onClick={() => buyCoins(nok)}
+                >
+                  {nok} NOK <span>→ {(nok * 10).toLocaleString()}</span>
+                </button>
+              ))}
             </div>
-          </section>
+            {buyCoinsMessage && <p className="buy-coins-message">{buyCoinsMessage}</p>}
+          </div>
         )}
 
         {isOwnPage && (
