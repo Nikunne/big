@@ -78,6 +78,7 @@ db.exec(`
     coins INTEGER NOT NULL DEFAULT 0,
     last_claim_at INTEGER NOT NULL DEFAULT 0,
     wallet_address TEXT UNIQUE,
+    saved_withdrawal_address TEXT NOT NULL DEFAULT '',
     wallet_created_at INTEGER NOT NULL DEFAULT 0,
     last_wallet_check_at INTEGER NOT NULL DEFAULT 0,
     transfer_blocked INTEGER NOT NULL DEFAULT 0
@@ -104,6 +105,9 @@ db.exec(`
 const userColumns = new Set(db.prepare('PRAGMA table_info(users)').all().map((column) => column.name))
 if (!userColumns.has('wallet_address')) {
   db.exec('ALTER TABLE users ADD COLUMN wallet_address TEXT')
+}
+if (!userColumns.has('saved_withdrawal_address')) {
+  db.exec("ALTER TABLE users ADD COLUMN saved_withdrawal_address TEXT NOT NULL DEFAULT ''")
 }
 if (!userColumns.has('wallet_created_at')) {
   db.exec('ALTER TABLE users ADD COLUMN wallet_created_at INTEGER NOT NULL DEFAULT 0')
@@ -189,6 +193,7 @@ const publicUser = (row) => ({
   coins: row.coins,
   lastClaimAt: row.last_claim_at,
   walletAddress: row.wallet_address ?? '',
+  savedWithdrawalAddress: row.saved_withdrawal_address ?? '',
   walletCreatedAt: row.wallet_created_at,
   lastWalletCheckAt: row.last_wallet_check_at,
   transferBlocked: Boolean(row.transfer_blocked),
@@ -196,13 +201,13 @@ const publicUser = (row) => ({
 })
 
 const getUser = db.prepare(
-  'SELECT username, coins, last_claim_at, wallet_address, wallet_created_at, last_wallet_check_at, transfer_blocked FROM users WHERE username = ?',
+  'SELECT username, coins, last_claim_at, wallet_address, saved_withdrawal_address, wallet_created_at, last_wallet_check_at, transfer_blocked FROM users WHERE username = ?',
 )
 const getUserWithPassword = db.prepare(
-  'SELECT username, password_hash, coins, last_claim_at, wallet_address, wallet_created_at, last_wallet_check_at, transfer_blocked FROM users WHERE username = ?',
+  'SELECT username, password_hash, coins, last_claim_at, wallet_address, saved_withdrawal_address, wallet_created_at, last_wallet_check_at, transfer_blocked FROM users WHERE username = ?',
 )
 const listUsers = db.prepare(
-  'SELECT username, coins, last_claim_at, wallet_address, wallet_created_at, last_wallet_check_at, transfer_blocked FROM users ORDER BY username COLLATE NOCASE',
+  'SELECT username, coins, last_claim_at, wallet_address, saved_withdrawal_address, wallet_created_at, last_wallet_check_at, transfer_blocked FROM users ORDER BY username COLLATE NOCASE',
 )
 const createUser = db.prepare(
   'INSERT INTO users (username, password_hash, coins, last_claim_at, wallet_address, wallet_created_at) VALUES (?, ?, 0, 0, ?, ?)',
@@ -216,6 +221,9 @@ const setCoins = db.prepare(
 )
 const setTransferBlocked = db.prepare(
   'UPDATE users SET transfer_blocked = ? WHERE username = ?',
+)
+const setSavedWithdrawalAddress = db.prepare(
+  'UPDATE users SET saved_withdrawal_address = ? WHERE username = ?',
 )
 const adjustCoins = db.prepare(
   'UPDATE users SET coins = max(0, coins + ?) WHERE username = ?',
@@ -745,6 +753,19 @@ createServer(async (request, response) => {
         await ensureUserWallet(username)
         const result = await syncWalletDepositsForUser(getUser.get(username))
         sendJson(response, 200, { ...result, user: publicUser(getUser.get(username)) })
+        return
+      }
+
+      if (request.method === 'PATCH' && action === 'withdrawal-address') {
+        if (getSessionUsername(request) !== username) {
+          sendJson(response, 403, { error: 'You can only update your own withdrawal address.' })
+          return
+        }
+
+        const body = await readJson(request)
+        const savedWithdrawalAddress = String(body.savedWithdrawalAddress ?? '').trim()
+        setSavedWithdrawalAddress.run(savedWithdrawalAddress, username)
+        sendJson(response, 200, { user: publicUser(getUser.get(username)) })
         return
       }
 

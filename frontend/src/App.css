@@ -1297,6 +1297,21 @@ h1 {
   font-weight: 900;
 }
 
+.withdraw-toggle {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  padding: 8px;
+  border: 3px solid #101010;
+  background: #fffdf5;
+}
+
+.withdraw-toggle input {
+  width: 22px;
+  min-height: 22px;
+  padding: 0;
+  accent-color: #101010;
+}
+
 .game-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

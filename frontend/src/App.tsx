@@ -7,6 +7,7 @@ type UserRecord = {
   coins: number
   lastClaimAt: number
   walletAddress: string
+  savedWithdrawalAddress: string
   walletCreatedAt: number
   lastWalletCheckAt: number
   transferBlocked: boolean
@@ -320,6 +321,9 @@ function App() {
   const [passwordMessage, setPasswordMessage] = useState('')
   const [walletMessage, setWalletMessage] = useState('')
   const [withdrawAddress, setWithdrawAddress] = useState('')
+  const [savedWithdrawalAddressInput, setSavedWithdrawalAddressInput] = useState('')
+  const [savedWithdrawalAddressDirty, setSavedWithdrawalAddressDirty] = useState(false)
+  const [withdrawToAnotherAddress, setWithdrawToAnotherAddress] = useState(false)
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [showWalletHelp, setShowWalletHelp] = useState(false)
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false)
@@ -428,6 +432,9 @@ function App() {
   const sortedRouletteNumbers = [...rouletteNumbers].sort((first, second) => first - second)
   const roulettePayout = getRoulettePayout(rouletteStake, sortedRouletteNumbers.length)
   const rouletteMultiplier = formatMultiplier(roulettePayout, rouletteStake)
+  const savedWithdrawalAddressDraft = savedWithdrawalAddressDirty
+    ? savedWithdrawalAddressInput
+    : activeCasinoUser?.savedWithdrawalAddress ?? ''
 
   const posterStyle = {
     '--poster-spin': `${posterRotation}deg`,
@@ -746,13 +753,16 @@ function App() {
   }
 
   const getWithdrawalAmount = () => Math.floor(Number(withdrawAmount) || 0)
+  const getWithdrawalAddress = () => (
+    withdrawToAnotherAddress ? withdrawAddress.trim() : activeCasinoUser?.savedWithdrawalAddress.trim() ?? ''
+  )
 
   const validateWithdrawal = () => {
     if (!activeCasinoUser || activeCasinoUser.username !== currentUsername) {
       return false
     }
 
-    if (!withdrawAddress.trim()) {
+    if (!getWithdrawalAddress()) {
       setWalletMessage('Withdrawal address is required.')
       return false
     }
@@ -785,6 +795,29 @@ function App() {
     }
   }
 
+  const saveWithdrawalAddress = async () => {
+    if (!activeCasinoUser || activeCasinoUser.username !== currentUsername) {
+      return
+    }
+
+    try {
+      const { user } = await apiRequest<{ user: UserRecord }>(
+        `/api/users/${encodeURIComponent(activeCasinoUser.username)}/withdrawal-address`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ savedWithdrawalAddress: savedWithdrawalAddressDraft.trim() }),
+        },
+      )
+      upsertUser(user)
+      setSavedWithdrawalAddressInput(user.savedWithdrawalAddress)
+      setSavedWithdrawalAddressDirty(false)
+      setWithdrawToAnotherAddress(false)
+      setWalletMessage(user.savedWithdrawalAddress ? 'Default withdrawal address saved.' : 'Default withdrawal address cleared.')
+    } catch (error) {
+      setWalletMessage(error instanceof Error ? error.message : 'Could not save withdrawal address.')
+    }
+  }
+
   const confirmWithdrawCoins = async () => {
     if (!activeCasinoUser || activeCasinoUser.username !== currentUsername || !validateWithdrawal()) {
       setShowWithdrawConfirm(false)
@@ -792,6 +825,7 @@ function App() {
     }
 
     const amount = getWithdrawalAmount()
+    const receiverAddress = getWithdrawalAddress()
     const previousUser = activeCasinoUser
     setShowWithdrawConfirm(false)
     setWalletMessage('Sending withdrawal.')
@@ -802,7 +836,7 @@ function App() {
         `/api/users/${encodeURIComponent(activeCasinoUser.username)}/withdraw`,
         {
           method: 'POST',
-          body: JSON.stringify({ receiverAddress: withdrawAddress, amount }),
+          body: JSON.stringify({ receiverAddress, amount }),
         },
       )
       upsertUser(user)
@@ -2285,13 +2319,37 @@ function App() {
             </div>
             <form className="withdraw-form" onSubmit={withdrawCoins}>
               <label>
-                Withdrawal address
+                Default withdrawal address
                 <input
-                  value={withdrawAddress}
-                  onChange={(event) => setWithdrawAddress(event.target.value)}
+                  value={savedWithdrawalAddressDraft}
+                  onChange={(event) => {
+                    setSavedWithdrawalAddressInput(event.target.value)
+                    setSavedWithdrawalAddressDirty(true)
+                  }}
                   placeholder="UncCoin wallet address"
                 />
               </label>
+              <button className="game-button alt" type="button" onClick={saveWithdrawalAddress}>
+                Save address
+              </button>
+              <label className="withdraw-toggle">
+                <input
+                  checked={withdrawToAnotherAddress}
+                  type="checkbox"
+                  onChange={(event) => setWithdrawToAnotherAddress(event.target.checked)}
+                />
+                Withdraw to another address
+              </label>
+              {withdrawToAnotherAddress && (
+                <label>
+                  Other withdrawal address
+                  <input
+                    value={withdrawAddress}
+                    onChange={(event) => setWithdrawAddress(event.target.value)}
+                    placeholder="UncCoin wallet address"
+                  />
+                </label>
+              )}
               <label>
                 Amount
                 <input
@@ -2604,7 +2662,7 @@ function App() {
               <h2 id="withdraw-confirm-title">Are you sure?</h2>
               <p>
                 Withdraw {getWithdrawalAmount().toLocaleString()} coins as UncCoins to{' '}
-                <strong>{withdrawAddress}</strong>.
+                <strong>{getWithdrawalAddress()}</strong>.
               </p>
               <div className="confirm-actions">
                 <button className="game-button" type="button" onClick={confirmWithdrawCoins}>
