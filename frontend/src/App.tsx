@@ -110,6 +110,18 @@ const ROULETTE_SPIN_DURATION_MS = 2200
 const ROULETTE_WHITE_NUMBERS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36])
 const ROULETTE_CHOICES = Array.from({ length: ROULETTE_NUMBER_COUNT }, (_, number) => number)
 const ROULETTE_WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
+const ROULETTE_POCKET_DEGREES = 360 / ROULETTE_NUMBER_COUNT
+const ROULETTE_WHEEL_BACKGROUND = `conic-gradient(from ${-ROULETTE_POCKET_DEGREES / 2}deg, ${ROULETTE_WHEEL_ORDER.map((number, index) => {
+  const color = number === 0
+    ? '#0bbf7a'
+    : ROULETTE_WHITE_NUMBERS.has(number)
+      ? '#fffdf5'
+      : '#101010'
+  const start = index * ROULETTE_POCKET_DEGREES
+  const end = (index + 1) * ROULETTE_POCKET_DEGREES
+
+  return `${color} ${start}deg ${end}deg`
+}).join(', ')})`
 const DEFAULT_GAME_SETTINGS: GameSettings = {
   slotsCost: 160,
   slotsTriplePayout: 1200,
@@ -2113,6 +2125,7 @@ function App() {
               '--roulette-ball-start': `${rouletteBallEnd - 720}deg`,
               '--roulette-ball-mid': `${rouletteBallEnd - 160}deg`,
               '--roulette-ball-end': `${rouletteBallEnd}deg`,
+              '--roulette-wheel-pockets': ROULETTE_WHEEL_BACKGROUND,
             } as CSSProperties}
           >
             <div className="roulette-pocket-ring" aria-hidden="true">
@@ -2127,7 +2140,7 @@ function App() {
               ))}
             </div>
             <i className="roulette-ball" aria-hidden="true"></i>
-            <strong className={ROULETTE_WHITE_NUMBERS.has(rouletteRoll) ? 'is-white' : rouletteRoll === 0 ? 'is-zero' : 'is-black'}>
+            <strong className={`roulette-center-number ${ROULETTE_WHITE_NUMBERS.has(rouletteRoll) ? 'is-white' : rouletteRoll === 0 ? 'is-zero' : 'is-black'} ${!animatingGames.roulette ? rouletteResultClassName : ''}`}>
               {animatingGames.roulette ? '?' : rouletteRoll}
             </strong>
           </div>
