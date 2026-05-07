@@ -1413,8 +1413,8 @@ createServer(async (request, response) => {
           },
         ],
         metadata: { username, coins: String(coins) },
-        success_url: `${stripeSuccessUrl}?payment=success`,
-        cancel_url: `${stripeCancelUrl}?payment=cancelled`,
+        success_url: `${stripeSuccessUrl}/?payment=success`,
+        cancel_url: `${stripeCancelUrl}/?payment=cancelled`,
       })
 
       sendJson(response, 200, { url: session.url })
