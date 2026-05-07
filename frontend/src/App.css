@@ -1543,6 +1543,12 @@ h1 {
   box-shadow: 12px 12px 0 #101010;
 }
 
+.roulette-wheel,
+.roulette-outcome-card,
+.roulette-action-stack {
+  grid-column: 1;
+}
+
 .roulette-wheel {
   --roulette-wheel-rest: 0deg;
   --roulette-spin-start: 0deg;
@@ -1649,7 +1655,7 @@ h1 {
   background: #fffdf5;
   box-shadow: 3px 3px 0 #101010;
   transform: rotate(var(--roulette-ball-end)) translateY(calc(-1 * min(33vw, 246px))) rotate(calc(-1 * var(--roulette-ball-end)));
-  transition: transform 2200ms cubic-bezier(0.08, 0.8, 0.2, 1);
+  transition: transform 2200ms cubic-bezier(0.03, 0.72, 0.08, 1);
   z-index: 2;
 }
 
@@ -1707,6 +1713,8 @@ h1 {
 }
 
 .roulette-controls {
+  grid-column: 2;
+  grid-row: 1 / span 2;
   display: grid;
   align-content: start;
   gap: 14px;
@@ -1737,7 +1745,7 @@ h1 {
 .roulette-summary strong {
   display: grid;
   place-items: center;
-  background: #fff200;
+  background: #fffdf5;
   font-size: 1.25rem;
 }
 
@@ -1752,8 +1760,8 @@ h1 {
 }
 
 .roulette-presets button.is-selected {
-  background: #0bbf7a;
-  box-shadow: 5px 5px 0 #101010, inset 0 0 0 3px #d6a600;
+  background: #fffdf5;
+  box-shadow: 5px 5px 0 #101010, inset 0 0 0 3px #77ff68;
   transform: translate(2px, 2px);
 }
 
@@ -1784,8 +1792,8 @@ h1 {
 }
 
 .roulette-numbers button.is-selected {
-  border-color: #d6a600;
-  box-shadow: inset 0 0 0 3px #d6a600;
+  border-color: #77ff68;
+  box-shadow: inset 0 0 0 2px #77ff68;
   transform: translateY(-1px);
   z-index: 1;
 }
@@ -1799,13 +1807,77 @@ h1 {
 }
 
 .roulette-spin-button {
+  width: 100%;
+  min-height: 72px;
   background: #0bbf7a;
-  box-shadow: 7px 7px 0 #101010, inset 0 0 0 4px #d6a600;
+  box-shadow: 7px 7px 0 #101010, inset 0 0 0 4px #77ff68;
+  font-size: clamp(18px, 2.4vw, 28px);
 }
 
 .roulette-spin-button:not(:disabled):hover {
   transform: translate(-2px, -2px);
-  box-shadow: 9px 9px 0 #101010, inset 0 0 0 4px #d6a600;
+  box-shadow: 9px 9px 0 #101010, inset 0 0 0 4px #77ff68;
+}
+
+.roulette-action-stack {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+}
+
+.roulette-action-stack .autoplay-button {
+  width: min(72%, 420px);
+  min-height: 52px;
+  justify-self: center;
+}
+
+.roulette-outcome-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 16px;
+  align-items: end;
+  min-height: 132px;
+  padding: 18px;
+  border: 6px solid #101010;
+  background: #fffdf5;
+  box-shadow: 10px 10px 0 #101010;
+  font-family: var(--mono);
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.roulette-outcome-card span {
+  grid-column: 1;
+  font-size: clamp(24px, 4vw, 52px);
+  line-height: 0.9;
+}
+
+.roulette-outcome-card strong {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: #101010;
+  font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', var(--heading);
+  font-size: clamp(46px, 7vw, 110px);
+  line-height: 0.85;
+}
+
+.roulette-outcome-card em {
+  grid-column: 1;
+  font-style: normal;
+}
+
+.roulette-outcome-card.is-win.has-result {
+  background: #77ff68;
+  box-shadow: 10px 10px 0 #101010, inset 0 0 0 6px #d6a600;
+}
+
+.roulette-outcome-card.is-loss.has-result {
+  background: #d82f2f;
+  color: #fffdf5;
+}
+
+.roulette-outcome-card.is-loss.has-result strong {
+  color: #fffdf5;
 }
 
 .game-reels {
@@ -2470,6 +2542,14 @@ button:focus-visible {
   .price-admin-header,
   .roulette-table {
     grid-template-columns: 1fr;
+  }
+
+  .roulette-wheel,
+  .roulette-outcome-card,
+  .roulette-action-stack,
+  .roulette-controls {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .site-nav {

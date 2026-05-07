@@ -359,6 +359,8 @@ function App() {
   const [rouletteWheelRotation, setRouletteWheelRotation] = useState(0)
   const [rouletteWheelSpinStart, setRouletteWheelSpinStart] = useState(0)
   const [rouletteLastWon, setRouletteLastWon] = useState(false)
+  const [rouletteLastPayout, setRouletteLastPayout] = useState(0)
+  const [rouletteHasResult, setRouletteHasResult] = useState(false)
   const [diceRoll, setDiceRoll] = useState(6)
   const [luckyNumber, setLuckyNumber] = useState(1)
   const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket(DEFAULT_GAME_SETTINGS))
@@ -1518,6 +1520,8 @@ function App() {
 
         setRouletteRoll(roll)
         setRouletteLastWon(won)
+        setRouletteLastPayout(game.payout)
+        setRouletteHasResult(false)
         setRouletteWheelSpinStart(rouletteWheelRotation)
         setRouletteWheelRotation(nextWheelRotation)
         window.setTimeout(() => {
@@ -1531,6 +1535,7 @@ function App() {
             title: won ? 'Roulette hit' : 'Roulette missed',
             detail: `Rolled ${roll}. Covered ${game.coveredCount ?? sortedRouletteNumbers.length} numbers at ${formatMultiplier(game.availablePayout ?? payout, game.cost)}. ${won ? `Won ${payout}` : 'Won 0'}.`,
           })
+          setRouletteHasResult(true)
           finishGame('roulette')
         }, ROULETTE_SPIN_DURATION_MS)
       })
@@ -2050,7 +2055,6 @@ function App() {
       { label: 'Even', numbers: ROULETTE_CHOICES.filter((number) => number > 0 && number % 2 === 0) },
       { label: '1-18', numbers: ROULETTE_CHOICES.filter((number) => number >= 1 && number <= 18) },
       { label: '19-36', numbers: ROULETTE_CHOICES.filter((number) => number >= 19) },
-      { label: 'Clear', numbers: [] },
     ]
 
     if (isLoadingUsers) {
@@ -2144,6 +2148,22 @@ function App() {
               {animatingGames.roulette ? '?' : rouletteRoll}
             </strong>
           </div>
+          <div className={`roulette-outcome-card ${rouletteHasResult ? 'has-result' : ''} ${rouletteLastWon ? 'is-win' : 'is-loss'}`} aria-live="polite">
+            <span>{rouletteHasResult ? (rouletteLastWon ? 'Won' : 'Lost') : 'Result pending'}</span>
+            <strong>{rouletteHasResult ? (rouletteLastWon ? `+${rouletteLastPayout.toLocaleString()}` : '0') : '-'}</strong>
+            <em>{rouletteHasResult ? `Rolled ${rouletteRoll}` : 'Spin the wheel'}</em>
+          </div>
+          <div className="roulette-action-stack">
+            <button
+              className="game-button roulette-spin-button"
+              type="button"
+              disabled={!isOwnPage || animatingGames.roulette || sortedRouletteNumbers.length === 0}
+              onClick={playRoulette}
+            >
+              {animatingGames.roulette ? 'Spinning' : `Spin for ${rouletteMultiplier}`}
+            </button>
+            {renderAutoplayButton('roulette')}
+          </div>
 
           <div className="roulette-controls">
             <div className="game-heading">
@@ -2181,12 +2201,19 @@ function App() {
                     disabled={animatingGames.roulette}
                     aria-pressed={isSelected}
                     key={preset.label}
-                    onClick={() => setRouletteCoveredNumbers(preset.numbers)}
+                    onClick={() => setRouletteCoveredNumbers(isSelected ? [] : preset.numbers)}
                   >
                     {preset.label}
                   </button>
                 )
               })}
+              <button
+                type="button"
+                disabled={animatingGames.roulette}
+                onClick={() => setRouletteCoveredNumbers([])}
+              >
+                Clear
+              </button>
             </div>
 
             <div className="roulette-numbers" aria-label="Roulette numbers">
@@ -2204,15 +2231,6 @@ function App() {
               ))}
             </div>
 
-            <button
-              className="game-button roulette-spin-button"
-              type="button"
-              disabled={!isOwnPage || animatingGames.roulette || sortedRouletteNumbers.length === 0}
-              onClick={playRoulette}
-            >
-              {animatingGames.roulette ? 'Spinning' : `Spin for ${rouletteMultiplier}`}
-            </button>
-            {renderAutoplayButton('roulette')}
           </div>
 
           <aside className="game-result roulette-result" aria-live="polite">
