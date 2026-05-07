@@ -1137,11 +1137,11 @@ function App() {
     }
   }
 
-  const renderAutoplayButton = (game: GameName) => (
+  const renderAutoplayButton = (game: GameName, extraDisabled = false) => (
     <button
       className="game-button autoplay-button"
       type="button"
-      disabled={!activeCasinoUser || activeCasinoUser.username !== currentUsername}
+      disabled={extraDisabled || !activeCasinoUser || activeCasinoUser.username !== currentUsername}
       aria-pressed={autoplayGames[game]}
       onClick={() => toggleAutoplay(game)}
     >
@@ -1512,6 +1512,13 @@ function App() {
   }
 
   const playRoulette = () => {
+    if (sortedRouletteNumbers.length === 0) {
+      if (autoplayLocks.current.roulette) {
+        stopAutoplay('roulette')
+      }
+      return
+    }
+
     const cost = rouletteStake
     const username = beginGame('roulette', cost)
 
@@ -2181,7 +2188,7 @@ function App() {
             >
               {animatingGames.roulette ? 'Spinning' : `Spin for ${rouletteMultiplier}`}
             </button>
-            {renderAutoplayButton('roulette')}
+            {renderAutoplayButton('roulette', !isOwnPage || sortedRouletteNumbers.length === 0)}
           </div>
           <div className={`roulette-outcome-card ${rouletteHasResult ? 'has-result' : ''} ${rouletteLastWon ? 'is-win' : 'is-loss'}`} aria-live="polite">
             <span>{rouletteHasResult ? (rouletteLastWon ? 'Won' : 'Lost') : 'Result pending'}</span>
