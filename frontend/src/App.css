@@ -1092,6 +1092,7 @@ h1 {
   border: 6px solid #101010;
   background: #fffdf5;
   box-shadow: 10px 10px 0 #101010;
+  align-items: start;
 }
 
 .view-wallet-panel {
@@ -1586,7 +1587,7 @@ h1 {
   inset: clamp(20px, 4vw, 46px);
   border: 5px solid #101010;
   background:
-    radial-gradient(circle at center, #101010 0 21%, #0bbf7a 22% 27%, #101010 28% 30%, transparent 31%),
+    radial-gradient(circle at center, #101010 0 30%, transparent 31%),
     var(--roulette-wheel-pockets);
   transition: transform 2200ms cubic-bezier(0.1, 0.72, 0.2, 1);
   transform: rotate(var(--roulette-wheel-rest));
@@ -1618,7 +1619,7 @@ h1 {
   font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', var(--heading);
   font-size: clamp(12px, 2vw, 22px);
   line-height: 1;
-  transform: translate(-50%, -50%) rotate(var(--pocket-angle)) translateY(calc(-1 * min(30vw, 225px)));
+  transform: translate(-50%, -50%) rotate(var(--pocket-angle)) translateY(calc(-1 * min(41vw, 315px)));
 }
 
 .roulette-pocket-ring span.is-black {
@@ -1654,14 +1655,14 @@ h1 {
   border-radius: 50%;
   background: #d82f2f;
   box-shadow: 3px 3px 0 #101010;
-  transform: rotate(var(--roulette-ball-end)) translateY(calc(-1 * min(33vw, 246px))) rotate(calc(-1 * var(--roulette-ball-end)));
-  transition: transform 2200ms cubic-bezier(0.02, 0.58, 0.24, 1);
+  transform: rotate(var(--roulette-ball-end)) translateY(calc(-1 * min(44vw, 336px))) rotate(calc(-1 * var(--roulette-ball-end)));
+  transition: transform 2200ms cubic-bezier(0, 0.85, 0.25, 1);
   z-index: 2;
 }
 
 .roulette-table:not(.is-playing) .roulette-ball {
   animation: none;
-  transform: rotate(var(--roulette-ball-end)) translateY(calc(-1 * min(33vw, 246px))) rotate(calc(-1 * var(--roulette-ball-end)));
+  transform: rotate(var(--roulette-ball-end)) translateY(calc(-1 * min(44vw, 336px))) rotate(calc(-1 * var(--roulette-ball-end)));
 }
 
 .roulette-center-number {
@@ -1710,6 +1711,15 @@ h1 {
 
 .roulette-numbers .is-zero {
   background: #0bbf7a;
+}
+
+.roulette-center-number.is-spinnable {
+  cursor: pointer;
+  transition: transform 120ms;
+}
+
+.roulette-center-number.is-spinnable:hover {
+  transform: scale(1.06);
 }
 
 .roulette-center-number.is-result-win {

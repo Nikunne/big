@@ -440,6 +440,7 @@ function App() {
   const currentUsernameRef = useRef('')
   const routePathRef = useRef(routePath)
   const playRouletteRef = useRef<() => void>(() => {})
+  const rouletteWheelRotationRef = useRef(0)
   const highLowStake = Math.max(1, Math.floor(Number(highLowBet) || gameSettings.highLowCost || 1))
   const visibleHighLowCard = animatingGames.highLow
     ? highLowCard
@@ -1250,7 +1251,7 @@ function App() {
     }
 
     if (game === 'roulette') {
-      playRoulette()
+      playRouletteRef.current()
       return
     }
 
@@ -1527,14 +1528,16 @@ function App() {
     )
       .then(({ user, game }) => {
         const roll = game.roll ?? rouletteRoll
-        const nextWheelRotation = rouletteWheelRotation + 2520 + 137
+        const currentRotation = rouletteWheelRotationRef.current
+        const nextWheelRotation = currentRotation + 2520 + 137
         const won = game.payout > 0
+        rouletteWheelRotationRef.current = nextWheelRotation
 
         setRouletteRoll(roll)
         setRouletteLastWon(won)
         setRouletteLastPayout(game.payout)
         setRouletteHasResult(false)
-        setRouletteWheelSpinStart(rouletteWheelRotation)
+        setRouletteWheelSpinStart(currentRotation)
         setRouletteWheelRotation(nextWheelRotation)
         window.setTimeout(() => {
           const payout = game.payout
@@ -1563,7 +1566,7 @@ function App() {
 
   useEffect(() => {
     playRouletteRef.current = playRoulette
-  }, [playRoulette])
+  })
 
   const buyFlaxTicket = async () => {
     const cost = gameSettings.flaxCost
@@ -2160,7 +2163,12 @@ function App() {
               ))}
             </div>
             <i className="roulette-ball" aria-hidden="true"></i>
-            <strong className={`roulette-center-number ${ROULETTE_WHITE_NUMBERS.has(rouletteRoll) ? 'is-white' : rouletteRoll === 0 ? 'is-zero' : 'is-black'} ${!animatingGames.roulette ? rouletteResultClassName : ''}`}>
+            <strong
+              className={`roulette-center-number ${ROULETTE_WHITE_NUMBERS.has(rouletteRoll) ? 'is-white' : rouletteRoll === 0 ? 'is-zero' : 'is-black'} ${!animatingGames.roulette ? rouletteResultClassName : ''} ${!animatingGames.roulette && isOwnPage && sortedRouletteNumbers.length > 0 ? 'is-spinnable' : ''}`}
+              role={!animatingGames.roulette && isOwnPage && sortedRouletteNumbers.length > 0 ? 'button' : undefined}
+              tabIndex={!animatingGames.roulette && isOwnPage && sortedRouletteNumbers.length > 0 ? 0 : undefined}
+              onClick={!animatingGames.roulette && isOwnPage && sortedRouletteNumbers.length > 0 ? playRoulette : undefined}
+            >
               {animatingGames.roulette ? '?' : rouletteRoll}
             </strong>
           </div>
