@@ -1203,6 +1203,12 @@ createServer(async (request, response) => {
         const bjAction = String(body.action ?? '')
 
         if (bjAction === 'deal') {
+          const existingGame = activeBlackjackGames.get(username)
+          if (existingGame?.phase === 'player') {
+            sendJson(response, 400, { error: 'Finish your current hand before dealing again.' })
+            return
+          }
+
           const bet = normalizeBetCost(body.bet, 100)
 
           if (!bet) {
