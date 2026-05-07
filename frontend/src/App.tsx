@@ -346,6 +346,7 @@ function App() {
   const [rouletteRoll, setRouletteRoll] = useState(0)
   const [rouletteWheelRotation, setRouletteWheelRotation] = useState(0)
   const [rouletteWheelSpinStart, setRouletteWheelSpinStart] = useState(0)
+  const [rouletteLastWon, setRouletteLastWon] = useState(false)
   const [diceRoll, setDiceRoll] = useState(6)
   const [luckyNumber, setLuckyNumber] = useState(1)
   const [flaxTicket, setFlaxTicket] = useState<FlaxSquare[]>(() => createFlaxTicket(DEFAULT_GAME_SETTINGS))
@@ -1501,13 +1502,14 @@ function App() {
       .then(({ user, game }) => {
         const roll = game.roll ?? rouletteRoll
         const nextWheelRotation = rouletteWheelRotation + 1440 + 137
+        const won = game.payout > 0
 
         setRouletteRoll(roll)
+        setRouletteLastWon(won)
         setRouletteWheelSpinStart(rouletteWheelRotation)
         setRouletteWheelRotation(nextWheelRotation)
         window.setTimeout(() => {
           const payout = game.payout
-          const won = payout > 0
 
           upsertUser(user)
           if (payout > 0) {
@@ -2024,6 +2026,11 @@ function App() {
     const rouletteRollIndex = Math.max(0, ROULETTE_WHEEL_ORDER.indexOf(rouletteRoll))
     const roulettePocketAngle = (rouletteRollIndex * 360) / ROULETTE_NUMBER_COUNT
     const rouletteBallEnd = rouletteWheelRotation + roulettePocketAngle
+    const rouletteResultClassName = !animatingGames.roulette
+      ? rouletteLastWon
+        ? 'is-result-win'
+        : 'is-result-loss'
+      : ''
     const roulettePresets = [
       { label: 'White', numbers: [...ROULETTE_WHITE_NUMBERS] },
       { label: 'Black', numbers: ROULETTE_CHOICES.filter((number) => number > 0 && !ROULETTE_WHITE_NUMBERS.has(number)) },
@@ -2111,7 +2118,7 @@ function App() {
             <div className="roulette-pocket-ring" aria-hidden="true">
               {ROULETTE_WHEEL_ORDER.map((number, index) => (
                 <span
-                  className={`${number === 0 ? 'is-zero' : ROULETTE_WHITE_NUMBERS.has(number) ? 'is-white' : 'is-black'} ${number === rouletteRoll && !animatingGames.roulette ? 'is-result' : ''}`}
+                  className={`${number === 0 ? 'is-zero' : ROULETTE_WHITE_NUMBERS.has(number) ? 'is-white' : 'is-black'} ${number === rouletteRoll ? rouletteResultClassName : ''}`}
                   key={number}
                   style={{ '--pocket-angle': `${(index * 360) / ROULETTE_NUMBER_COUNT}deg` } as CSSProperties}
                 >

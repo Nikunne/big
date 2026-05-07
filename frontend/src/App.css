@@ -1661,10 +1661,19 @@ h1 {
   color: #101010;
 }
 
-.roulette-pocket-ring span.is-zero,
-.roulette-pocket-ring span.is-result {
+.roulette-pocket-ring span.is-zero {
   background: #0bbf7a;
   color: #101010;
+}
+
+.roulette-pocket-ring span.is-result-win {
+  background: #d6a600;
+  color: #101010;
+}
+
+.roulette-pocket-ring span.is-result-loss {
+  background: #d82f2f;
+  color: #fffdf5;
 }
 
 .roulette-ball {
@@ -1689,6 +1698,11 @@ h1 {
 
 .roulette-table.is-playing .roulette-ball {
   animation: roulette-ball-spin 2200ms cubic-bezier(0.08, 0.8, 0.2, 1) forwards;
+}
+
+.roulette-table:not(.is-playing) .roulette-ball {
+  animation: none;
+  transform: rotate(var(--roulette-ball-end)) translateY(calc(-1 * min(33vw, 246px))) rotate(calc(-1 * var(--roulette-ball-end)));
 }
 
 .roulette-wheel strong {
