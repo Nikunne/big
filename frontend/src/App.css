@@ -3259,7 +3259,11 @@ button:focus-visible {
 .tx-log-panel {
   max-width: 1180px;
   margin: clamp(14px, 2.5vw, 24px) auto;
-  padding: 0 14px;
+  padding: clamp(18px, 4vw, 34px);
+  border: 7px solid #101010;
+  background: #101010;
+  box-shadow: 16px 16px 0 #101010;
+  overflow-x: auto;
 }
 
 .tx-log-loading,
@@ -3286,23 +3290,23 @@ button:focus-visible {
 
 .tx-log-table th {
   text-align: left;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-bottom: 2px solid #333;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  opacity: 0.6;
+  color: #999;
   white-space: nowrap;
 }
 
 .tx-log-table td {
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-bottom: 1px solid #1e1e1e;
   vertical-align: middle;
 }
 
 .tx-log-table tr:hover td {
-  background: #181818;
+  background: #1a1a1a;
 }
 
 .tx-positive {
