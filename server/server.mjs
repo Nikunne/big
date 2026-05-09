@@ -1210,6 +1210,16 @@ createServer(async (request, response) => {
         return
       }
 
+      if (request.method === 'GET' && action === 'blackjack') {
+        if (getSessionUsername(request) !== username) {
+          sendJson(response, 403, { error: 'You can only view your own game.' })
+          return
+        }
+        const existingGame = activeBlackjackGames.get(username)
+        sendJson(response, 200, { game: existingGame ? bjPublicGame(existingGame) : null })
+        return
+      }
+
       if (request.method === 'POST' && action === 'blackjack') {
         if (getSessionUsername(request) !== username) {
           sendJson(response, 403, { error: 'You can only play from your own account.' })

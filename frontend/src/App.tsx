@@ -582,6 +582,17 @@ function App() {
   }, [routePath])
 
   useEffect(() => {
+    if (routePath !== '/blackjack' || !currentUsername) return
+    let isMounted = true
+    setBjGame(null)
+    setBjError('')
+    apiRequest<{ game: BjGameState | null }>(`/api/users/${encodeURIComponent(currentUsername)}/blackjack`)
+      .then(({ game }) => { if (isMounted) setBjGame(game) })
+      .catch(() => {})
+    return () => { isMounted = false }
+  }, [routePath, currentUsername])
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const payment = params.get('payment')
 
