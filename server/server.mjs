@@ -107,6 +107,17 @@ db.exec(`
     timestamp TEXT NOT NULL DEFAULT '',
     processed_at INTEGER NOT NULL,
     FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    delta INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
   )
 `)
 
@@ -365,6 +376,12 @@ const listWalletUsers = db.prepare(
 const createWalletDeposit = db.prepare(
   'INSERT OR IGNORE INTO wallet_deposits (transaction_key, username, wallet_address, from_address, amount, block_id, timestamp, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
 )
+const insertTransaction = db.prepare(
+  'INSERT INTO transactions (username, delta, balance_after, source, note, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+)
+const listTransactions = db.prepare(
+  'SELECT id, delta, balance_after, source, note, created_at FROM transactions WHERE username = ? ORDER BY id DESC LIMIT ? OFFSET ?',
+)
 
 for (const [setting, value] of Object.entries(defaultGameSettings)) {
   createGameSetting.run(setting, value)
@@ -384,6 +401,11 @@ const getGameSettings = () => ({
     listGameSettings.all().map((row) => [row.setting_key, normalizeSettingValue(row.setting_value)]),
   ),
 })
+
+const logTx = (username, delta, source, note = '') => {
+  const user = getUser.get(username)
+  insertTransaction.run(username, delta, user ? user.coins : 0, source, note, Date.now())
+}
 
 const hasUncCoinConfig = () => Boolean(uncCoinApiBaseUrl && uncCoinApiToken)
 
@@ -504,6 +526,7 @@ const syncWalletDepositsForUser = async (user) => {
 
       if (result.changes > 0) {
         adjustCoins.run(amount, user.username)
+        logTx(user.username, amount, 'deposit:unccoin', `from: ${String(transaction.from_address ?? '').slice(0, 20)}`)
         credited += amount
         deposits += 1
       }
@@ -623,7 +646,7 @@ const publicFlaxTicket = (ticket) => ticket.map((square) => ({
   scratched: square.scratched,
 }))
 
-const runCoinGame = (username, cost, play) => {
+const runCoinGame = (username, cost, source, play) => {
   if (!Number.isSafeInteger(cost) || cost <= 0 || cost > maxBetCost) {
     return { error: 'Stake must be between 1 and 1,000,000,000 coins.' }
   }
@@ -643,6 +666,7 @@ const runCoinGame = (username, cost, play) => {
       adjustCoins.run(result.payout, username)
     }
 
+    logTx(username, result.payout - cost, source)
     db.exec('COMMIT')
 
     return {
@@ -824,7 +848,9 @@ createServer(async (request, response) => {
 
         const body = await readJson(request)
         const coins = Math.max(0, Math.floor(Number(body.coins) || 0))
+        const prevCoins = getUser.get(username)?.coins ?? 0
         setCoins.run(coins, username)
+        logTx(username, coins - prevCoins, 'admin:set', `set to ${coins}`)
         sendJson(response, 200, { user: publicUser(getUser.get(username)) })
         return
       }
@@ -838,6 +864,7 @@ createServer(async (request, response) => {
         const body = await readJson(request)
         const delta = Math.floor(Number(body.delta) || 0)
         adjustCoins.run(delta, username)
+        logTx(username, delta, 'admin:adjust')
         sendJson(response, 200, { user: publicUser(getUser.get(username)) })
         return
       }
@@ -924,6 +951,7 @@ createServer(async (request, response) => {
           return
         }
 
+        logTx(username, -amount, 'withdrawal', `to: ${receiverAddress.slice(0, 20)}`)
         try {
           const transaction = await uncCoinRequest('/api/transactions', {
             method: 'POST',
@@ -941,6 +969,7 @@ createServer(async (request, response) => {
           })
         } catch (error) {
           adjustCoins.run(amount, username)
+          logTx(username, amount, 'withdrawal:refund')
           sendJson(response, 502, {
             error: error instanceof Error ? error.message : 'Withdrawal failed.',
             user: publicUser(getUser.get(username)),
@@ -998,6 +1027,8 @@ createServer(async (request, response) => {
           }
 
           creditCoins.run(amount, recipientUsername)
+          logTx(username, -amount, 'transfer:sent', `to: ${recipientUsername}`)
+          logTx(recipientUsername, amount, 'transfer:received', `from: ${username}`)
           db.exec('COMMIT')
         } catch (error) {
           db.exec('ROLLBACK')
@@ -1023,7 +1054,7 @@ createServer(async (request, response) => {
         let result
 
         if (game === 'slots') {
-          result = runCoinGame(username, settings.slotsCost, () => {
+          result = runCoinGame(username, settings.slotsCost, 'game:slots', () => {
             const reels = Array.from(
               { length: 3 },
               () => slotSymbols[Math.floor(Math.random() * slotSymbols.length)],
@@ -1045,7 +1076,7 @@ createServer(async (request, response) => {
             return
           }
 
-          result = runCoinGame(username, settings.flipCost, () => {
+          result = runCoinGame(username, settings.flipCost, 'game:flip', () => {
             const face = pickRandomCoinFace()
             return { payout: face === pick ? settings.flipPayout : 0, face, pick }
           })
@@ -1058,7 +1089,7 @@ createServer(async (request, response) => {
             return
           }
 
-          result = runCoinGame(username, cost, () => {
+          result = runCoinGame(username, cost, 'game:highlow', () => {
             const startCard = getActiveHighLowCard(username)
             const nextCard = pickRandomCard()
             const won = guess === 'higher' ? nextCard > startCard : nextCard < startCard
@@ -1074,7 +1105,7 @@ createServer(async (request, response) => {
             }
           })
         } else if (game === 'dice') {
-          result = runCoinGame(username, settings.diceCost, () => {
+          result = runCoinGame(username, settings.diceCost, 'game:dice', () => {
             const roll = randomInt(1, 7)
             const payout = roll === 6
               ? settings.diceSixPayout
@@ -1092,7 +1123,7 @@ createServer(async (request, response) => {
             return
           }
 
-          result = runCoinGame(username, settings.luckyCost, () => {
+          result = runCoinGame(username, settings.luckyCost, 'game:lucky', () => {
             const number = pickRandomLuckyNumber()
 
             return { payout: number === pick ? settings.luckyPayout : 0, number, pick }
@@ -1111,7 +1142,7 @@ createServer(async (request, response) => {
             return
           }
 
-          result = runCoinGame(username, cost, () => {
+          result = runCoinGame(username, cost, 'game:roulette', () => {
             const roll = randomInt(0, rouletteNumberCount)
             const coveredCount = numbers.length
             const availablePayout = getRoulettePayout(cost, coveredCount)
@@ -1134,6 +1165,7 @@ createServer(async (request, response) => {
           }
 
           adjustCoins.run(-settings.flaxCost, username)
+          logTx(username, -settings.flaxCost, 'game:flax')
           const ticket = createFlaxTicket(settings)
           activeFlaxTickets.set(username, { ticket, paidPrize: 0 })
           sendJson(response, 200, {
@@ -1188,6 +1220,7 @@ createServer(async (request, response) => {
         if (payout > 0) {
           activeTicket.paidPrize = payout
           adjustCoins.run(payout, username)
+          logTx(username, payout, 'game:flax')
         }
 
         const isFinished = activeTicket.ticket.every((square) => square.scratched)
@@ -1257,6 +1290,7 @@ createServer(async (request, response) => {
             throw e
           }
 
+          logTx(username, -bet, 'game:blackjack', 'bet')
           const deck = bjCreateDeck()
           const player = [bjDraw({ deck }), bjDraw({ deck })]
           const dealer = [bjDraw({ deck }), bjDraw({ deck })]
@@ -1270,7 +1304,10 @@ createServer(async (request, response) => {
             game.result = outcome.result
             game.payout = outcome.payout
             game.phase = 'done'
-            if (outcome.payout > 0) adjustCoins.run(outcome.payout, username)
+            if (outcome.payout > 0) {
+              adjustCoins.run(outcome.payout, username)
+              logTx(username, outcome.payout, 'game:blackjack', outcome.result)
+            }
           }
 
           activeBlackjackGames.set(username, game)
@@ -1300,7 +1337,10 @@ createServer(async (request, response) => {
             game.result = outcome.result
             game.payout = outcome.payout
             game.phase = 'done'
-            if (outcome.payout > 0) adjustCoins.run(outcome.payout, username)
+            if (outcome.payout > 0) {
+              adjustCoins.run(outcome.payout, username)
+              logTx(username, outcome.payout, 'game:blackjack', outcome.result)
+            }
             activeBlackjackGames.delete(username)
           } else {
             activeBlackjackGames.set(username, game)
@@ -1316,7 +1356,10 @@ createServer(async (request, response) => {
           game.result = outcome.result
           game.payout = outcome.payout
           game.phase = 'done'
-          if (outcome.payout > 0) adjustCoins.run(outcome.payout, username)
+          if (outcome.payout > 0) {
+            adjustCoins.run(outcome.payout, username)
+            logTx(username, outcome.payout, 'game:blackjack', outcome.result)
+          }
           activeBlackjackGames.delete(username)
           sendJson(response, 200, { user: publicUser(getUser.get(username)), game: bjPublicGame(game) })
           return
@@ -1328,12 +1371,13 @@ createServer(async (request, response) => {
             return
           }
 
+          const doubleBet = game.bet
           db.exec('BEGIN IMMEDIATE')
           try {
-            const debit = debitCoins.run(game.bet, username, game.bet)
+            const debit = debitCoins.run(doubleBet, username, doubleBet)
             if (debit.changes === 0) {
               db.exec('ROLLBACK')
-              sendJson(response, 400, { error: `Double requires ${game.bet.toLocaleString()} more coins.` })
+              sendJson(response, 400, { error: `Double requires ${doubleBet.toLocaleString()} more coins.` })
               return
             }
             db.exec('COMMIT')
@@ -1342,6 +1386,7 @@ createServer(async (request, response) => {
             throw e
           }
 
+          logTx(username, -doubleBet, 'game:blackjack', 'double down')
           game.bet *= 2
           game.doubled = true
           game.player.push(bjDraw(game))
@@ -1352,7 +1397,10 @@ createServer(async (request, response) => {
           game.result = outcome.result
           game.payout = outcome.payout
           game.phase = 'done'
-          if (outcome.payout > 0) adjustCoins.run(outcome.payout, username)
+          if (outcome.payout > 0) {
+            adjustCoins.run(outcome.payout, username)
+            logTx(username, outcome.payout, 'game:blackjack', outcome.result)
+          }
           activeBlackjackGames.delete(username)
           sendJson(response, 200, { user: publicUser(getUser.get(username)), game: bjPublicGame(game) })
           return
@@ -1385,6 +1433,20 @@ createServer(async (request, response) => {
 
         setPassword.run(hashPassword(nextPassword), username)
         sendJson(response, 200, { user: publicUser(getUser.get(username)) })
+        return
+      }
+
+      if (request.method === 'GET' && action === 'transactions') {
+        const sessionUsername = getSessionUsername(request)
+
+        if (sessionUsername !== username && sessionUsername !== adminUsername) {
+          sendJson(response, 403, { error: 'You can only view your own transaction log.' })
+          return
+        }
+
+        const limit = Math.min(200, Math.max(1, Math.floor(Number(url.searchParams.get('limit')) || 200)))
+        const offset = Math.max(0, Math.floor(Number(url.searchParams.get('offset')) || 0))
+        sendJson(response, 200, { transactions: listTransactions.all(username, limit, offset) })
         return
       }
     }
@@ -1456,6 +1518,7 @@ createServer(async (request, response) => {
 
         if (username && coins > 0 && getUser.get(username)) {
           creditCoins.run(coins, username)
+          logTx(username, coins, 'deposit:stripe', `${coins / STRIPE_COINS_PER_NOK} NOK`)
           console.log(`Stripe: credited ${coins} coins to ${username}`)
         }
       }

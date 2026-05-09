@@ -77,6 +77,14 @@ type GameResult = {
   detail: string
 }
 type GameName = 'slots' | 'flip' | 'highLow' | 'dice' | 'lucky' | 'flax' | 'roulette'
+type TransactionEntry = {
+  id: number
+  delta: number
+  balance_after: number
+  source: string
+  note: string
+  created_at: number
+}
 type FloatingDelta = {
   id: number
   game: GameName
@@ -390,7 +398,11 @@ function App() {
     detail: 'Grab coins, pick a game, press a button.',
   })
   const [adminCoinInputs, setAdminCoinInputs] = useState<Record<string, string>>({})
+  const [txLog, setTxLog] = useState<TransactionEntry[]>([])
+  const [txLogLoading, setTxLogLoading] = useState(false)
+  const [txLogError, setTxLogError] = useState('')
   const [hideZeroBalanceUsers, setHideZeroBalanceUsers] = useState(false)
+  const [hideCXUsers, setHideCXUsers] = useState(false)
   const [floatingDeltas, setFloatingDeltas] = useState<FloatingDelta[]>([])
   const [autoplayGames, setAutoplayGames] = useState<Record<GameName, boolean>>({
     slots: false,
@@ -447,7 +459,7 @@ function App() {
   const menuItems = currentUser
     ? ['Home', 'Evidence', 'Buy Domain', 'Contact']
     : ['Home', 'Evidence', 'Buy Domain', 'Login', 'Contact']
-  const routedUsername = routePath.match(/^\/users\/([^/]+)\/?$/)?.[1] ?? ''
+  const routedUsername = routePath.match(/^\/users\/([^/]+)(?:\/log)?$/)?.[1] ?? ''
   const routedUser = users.find((user) => user.username === decodeURIComponent(routedUsername))
   const activeCasinoUser = routedUser ?? currentUser
   const topUsers = [...users]
@@ -591,6 +603,13 @@ function App() {
       .catch(() => {})
     return () => { isMounted = false }
   }, [routePath, currentUsername])
+
+  useEffect(() => {
+    const match = routePath.match(/^\/users\/([^/]+)\/log$/)
+    if (match) {
+      loadTxLog(decodeURIComponent(match[1]))
+    }
+  }, [routePath])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -1079,8 +1098,27 @@ function App() {
     updateCoins(username, coinDelta)
   }
 
+  const loadTxLog = async (username: string) => {
+    setTxLogLoading(true)
+    setTxLogError('')
+    try {
+      const data = await apiRequest<{ transactions: TransactionEntry[] }>(
+        `/api/users/${encodeURIComponent(username)}/transactions`,
+      )
+      setTxLog(data.transactions)
+    } catch (err) {
+      setTxLogError(err instanceof Error ? err.message : 'Failed to load log.')
+    } finally {
+      setTxLogLoading(false)
+    }
+  }
+
   const toggleZeroBalanceUsers = useCallback(() => {
     setHideZeroBalanceUsers((isHidden) => !isHidden)
+  }, [])
+
+  const toggleCXUsers = useCallback(() => {
+    setHideCXUsers((isHidden) => !isHidden)
   }, [])
 
   useEffect(() => {
@@ -2650,6 +2688,18 @@ function App() {
         )}
 
         {isOwnPage && (
+          <div className="tx-log-bar">
+            <button
+              className="game-button alt"
+              type="button"
+              onClick={() => goToPath(`/users/${activeCasinoUser.username}/log`)}
+            >
+              Transaction log
+            </button>
+          </div>
+        )}
+
+        {isOwnPage && (
           <section className="wallet-panel" aria-labelledby="wallet-title">
             <div className="wallet-info">
               <p className="eyebrow">UncCoin wallet</p>
@@ -3061,6 +3111,14 @@ function App() {
                 >
                   {hideZeroBalanceUsers ? 'Show 0-coin users' : 'Hide 0-coin users'}
                 </button>
+                <button
+                  className="admin-cleanup-button"
+                  type="button"
+                  aria-pressed={hideCXUsers}
+                  onClick={toggleCXUsers}
+                >
+                  {hideCXUsers ? 'Show CX users' : 'Hide CX users'}
+                </button>
               </div>
               <h2 id="admin-title">Admin panel</h2>
             </div>
@@ -3068,6 +3126,7 @@ function App() {
             <div className="admin-users">
               {users
                 .filter((user) => !hideZeroBalanceUsers || user.coins > 0)
+                .filter((user) => !hideCXUsers || !user.username.startsWith('CX'))
                 .map((user) => {
                 const inputValue = adminCoinInputs[user.username] ?? String(user.coins)
 
@@ -3138,6 +3197,93 @@ function App() {
         )}
       </main>
     )
+  }
+
+  const renderTransactionLogPage = () => {
+    const logUsername = routePath.match(/^\/users\/([^/]+)\/log$/)?.[1] ?? ''
+    const decodedUsername = decodeURIComponent(logUsername)
+
+    const SOURCE_LABELS: Record<string, string> = {
+      'game:slots': 'Slots',
+      'game:flip': 'Coin flip',
+      'game:highlow': 'High/Low',
+      'game:dice': 'Dice',
+      'game:lucky': 'Lucky number',
+      'game:roulette': 'Roulette',
+      'game:flax': 'Flax',
+      'game:blackjack': 'Blackjack',
+      'transfer:sent': 'Sent',
+      'transfer:received': 'Received',
+      'deposit:unccoin': 'UncCoin deposit',
+      'deposit:stripe': 'Purchase',
+      'withdrawal': 'Withdrawal',
+      'withdrawal:refund': 'Withdrawal refund',
+      'admin:adjust': 'Admin adjustment',
+      'admin:set': 'Admin set',
+    }
+
+    return (
+      <main className="user-page">
+        <nav className="site-nav user-nav" aria-label="User navigation">
+          <button className="brand-mark nav-button" type="button" onClick={() => goToPath('/')}>
+            BD.FYI
+          </button>
+          <div className="nav-links">
+            <button type="button" onClick={() => goToPath(`/users/${logUsername}`)}>
+              Back to profile
+            </button>
+            <button type="button" onClick={() => goToPath('/')}>
+              Home
+            </button>
+          </div>
+        </nav>
+
+        <section className="casino-floor" aria-labelledby="txlog-title">
+          <div className="casino-copy">
+            <p className="eyebrow">Transaction log</p>
+            <h1 id="txlog-title">{decodedUsername}</h1>
+          </div>
+        </section>
+
+        <section className="tx-log-panel">
+          {txLogLoading && <p className="tx-log-loading">Loading…</p>}
+          {txLogError && <p className="tx-log-error">{txLogError}</p>}
+          {!txLogLoading && !txLogError && txLog.length === 0 && (
+            <p className="tx-log-empty">No transactions yet.</p>
+          )}
+          {!txLogLoading && txLog.length > 0 && (
+            <table className="tx-log-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Note</th>
+                  <th>Amount</th>
+                  <th>Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {txLog.map((tx) => (
+                  <tr key={tx.id}>
+                    <td>{new Date(tx.created_at).toLocaleString()}</td>
+                    <td>{SOURCE_LABELS[tx.source] ?? tx.source}</td>
+                    <td>{tx.note}</td>
+                    <td className={tx.delta >= 0 ? 'tx-positive' : 'tx-negative'}>
+                      {tx.delta >= 0 ? '+' : ''}{tx.delta.toLocaleString()}
+                    </td>
+                    <td>{tx.balance_after.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      </main>
+    )
+  }
+
+  if (routePath.match(/^\/users\/[^/]+\/log$/)) {
+    return renderTransactionLogPage()
   }
 
   if (routePath === '/send-money') {

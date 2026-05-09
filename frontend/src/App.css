@@ -3248,3 +3248,69 @@ button:focus-visible {
     font-size: 13px;
   }
 }
+
+/* Transaction log */
+.tx-log-bar {
+  max-width: 1180px;
+  margin: clamp(14px, 2.5vw, 24px) auto 0;
+  padding: 0 14px;
+}
+
+.tx-log-panel {
+  max-width: 1180px;
+  margin: clamp(14px, 2.5vw, 24px) auto;
+  padding: 0 14px;
+}
+
+.tx-log-loading,
+.tx-log-error,
+.tx-log-empty {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: #fffdf5;
+  opacity: 0.7;
+}
+
+.tx-log-error {
+  color: #ff5252;
+  opacity: 1;
+}
+
+.tx-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: #fffdf5;
+}
+
+.tx-log-table th {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 2px solid #333;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.tx-log-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #1e1e1e;
+  vertical-align: middle;
+}
+
+.tx-log-table tr:hover td {
+  background: #181818;
+}
+
+.tx-positive {
+  color: #4cff91;
+  font-weight: 700;
+}
+
+.tx-negative {
+  color: #ff5252;
+  font-weight: 700;
+}
