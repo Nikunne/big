@@ -2672,14 +2672,14 @@ function App() {
           <div className="buy-coins-bar">
             <span className="buy-coins-label">Buy coins</span>
             <div className="buy-coins-buttons">
-              {[10, 50, 100, 500].map((nok) => (
+              {[50, 100, 200, 500].map((nok) => (
                 <button
                   key={nok}
                   className="game-button buy-coins-button"
                   type="button"
                   onClick={() => buyCoins(nok)}
                 >
-                  {nok} NOK <span>→ {(nok * 10).toLocaleString()}</span>
+                  {nok} NOK <span>→ {(nok * 50).toLocaleString()}</span>
                 </button>
               ))}
             </div>
