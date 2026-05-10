@@ -2971,6 +2971,7 @@ function App() {
             <div
               className="flax-ticket"
               aria-label="FLAX-lodd scratch ticket"
+              style={{ cursor: isOwnPage && animatingGames.flax && flaxTicket.some((s) => !s.scratched) ? 'pointer' : 'default' }}
               onClick={(event) => {
                 if ((event.target as HTMLElement).closest('button')) return
                 if (!isOwnPage || !animatingGames.flax) return
