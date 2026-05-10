@@ -2968,7 +2968,27 @@ function App() {
               <h2>FLAX-lodd</h2>
               {renderGameHelpButton('flax')}
             </div>
-            <div className="flax-ticket" aria-label="FLAX-lodd scratch ticket">
+            <div
+              className="flax-ticket"
+              aria-label="FLAX-lodd scratch ticket"
+              onClick={(event) => {
+                if ((event.target as HTMLElement).closest('button')) return
+                if (!isOwnPage || !animatingGames.flax) return
+                const container = event.currentTarget
+                const squares = Array.from(container.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+                if (squares.length === 0) return
+                let closest: HTMLButtonElement | null = null
+                let closestDist = Infinity
+                for (const sq of squares) {
+                  const rect = sq.getBoundingClientRect()
+                  const cx = rect.left + rect.width / 2
+                  const cy = rect.top + rect.height / 2
+                  const dist = Math.hypot(cx - event.clientX, cy - event.clientY)
+                  if (dist < closestDist) { closestDist = dist; closest = sq }
+                }
+                if (closest) scratchFlaxSquare(Number(closest.dataset.squareId))
+              }}
+            >
               {flaxTicket.map((square) => (
                 <button
                   className={`flax-square flax-prize-${square.prize} ${square.scratched ? 'is-scratched' : ''}`}
