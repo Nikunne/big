@@ -3339,36 +3339,44 @@ function App() {
         </nav>
 
         <div className="ticker" aria-hidden="true">
-          <span>bigdick.fyi // oddly useful // aggressively online // send snacks //</span>
-          <span>bigdick.fyi // oddly useful // aggressively online // send snacks //</span>
+          <span>bigdick.fyi // powered by uncc coin // deposit & withdraw crypto // aggressively online // coin casino // unccoin.no //</span>
+          <span>bigdick.fyi // powered by uncc coin // deposit & withdraw crypto // aggressively online // coin casino // unccoin.no //</span>
         </div>
 
         <div className="hero-grid">
           <div className="hero-copy">
-            <p className="eyebrow">Information you did not request</p>
+            <p className="eyebrow">Crypto casino — powered by UNCC Coin</p>
             <h1 className="hero-title">bigdick.fyi</h1>
             <p className="lede">
-              A tiny official-looking website for an extremely unserious domain.
-              Bring questions, rumors, compliments, tiny business cards, and
-              tasteful nonsense.
+              Play slots, blackjack, and roulette with real UNCC coins.
+              Deposit and withdraw crypto via{' '}
+              <a className="lede-link" href="https://unccoin.no" target="_blank" rel="noopener noreferrer">unccoin.no</a>.
+              Wins go straight to your wallet.
             </p>
             <div className="hero-actions">
-              <a className="primary-action" href={`mailto:${EMAIL_ADDRESS}`}>
-                {EMAIL_ADDRESS}
-              </a>
               {currentUser ? (
                 <button
-                  className="secondary-action"
+                  className="primary-action"
                   type="button"
                   onClick={() => goToPath(`/users/${currentUser.username}`)}
                 >
                   Enter coin palace
                 </button>
               ) : (
-                <a className="secondary-action" href="#login">
+                <a className="primary-action" href="#login">
                   Enter coin palace
                 </a>
               )}
+              <a className="secondary-action crypto-action" href="https://unccoin.no" target="_blank" rel="noopener noreferrer">
+                unccoin.no ↗
+              </a>
+            </div>
+            <div className="crypto-strip">
+              <span className="crypto-badge">Deposit UNCC</span>
+              <span className="crypto-sep">//</span>
+              <span className="crypto-badge">Withdraw UNCC</span>
+              <span className="crypto-sep">//</span>
+              <span className="crypto-badge">Real crypto</span>
             </div>
           </div>
 
