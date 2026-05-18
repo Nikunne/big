@@ -163,6 +163,11 @@ if (!userColumns.has('transfer_blocked')) {
 }
 db.exec("UPDATE users SET wallet_address = NULL WHERE wallet_address = ''")
 
+const marketColumns = new Set(db.prepare('PRAGMA table_info(prediction_markets)').all().map((c) => c.name))
+if (!marketColumns.has('seed_yes_pct')) {
+  db.exec('ALTER TABLE prediction_markets ADD COLUMN seed_yes_pct INTEGER NOT NULL DEFAULT 50')
+}
+
 const hashPassword = (password) => (
   createHash('sha256').update(password).digest('hex')
 )
@@ -417,10 +422,6 @@ const createMarket = db.prepare(
   'INSERT INTO prediction_markets (question, creator, status, yes_pool, no_pool, seed_yes_pct, created_at) VALUES (?, ?, ?, 0, 0, ?, ?)',
 )
 
-const marketColumns = new Set(db.prepare('PRAGMA table_info(prediction_markets)').all().map((c) => c.name))
-if (!marketColumns.has('seed_yes_pct')) {
-  db.exec('ALTER TABLE prediction_markets ADD COLUMN seed_yes_pct INTEGER NOT NULL DEFAULT 50')
-}
 const updateMarketPool = db.prepare(
   'UPDATE prediction_markets SET yes_pool = yes_pool + ?, no_pool = no_pool + ? WHERE id = ?',
 )
