@@ -118,6 +118,29 @@ db.exec(`
     note TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS prediction_markets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    question TEXT NOT NULL,
+    creator TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    yes_pool INTEGER NOT NULL DEFAULT 0,
+    no_pool INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    resolved_at INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS prediction_bets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market_id INTEGER NOT NULL,
+    username TEXT NOT NULL,
+    side TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    payout INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (market_id) REFERENCES prediction_markets(id),
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
   )
 `)
 
@@ -382,6 +405,42 @@ const insertTransaction = db.prepare(
 const listTransactions = db.prepare(
   'SELECT id, delta, balance_after, source, note, created_at FROM transactions WHERE username = ? ORDER BY id DESC LIMIT ? OFFSET ?',
 )
+
+const listMarkets = db.prepare(
+  'SELECT id, question, creator, status, yes_pool, no_pool, created_at, resolved_at FROM prediction_markets ORDER BY id DESC',
+)
+const getMarket = db.prepare(
+  'SELECT id, question, creator, status, yes_pool, no_pool, created_at, resolved_at FROM prediction_markets WHERE id = ?',
+)
+const createMarket = db.prepare(
+  'INSERT INTO prediction_markets (question, creator, status, yes_pool, no_pool, created_at) VALUES (?, ?, ?, 0, 0, ?)',
+)
+const updateMarketPool = db.prepare(
+  'UPDATE prediction_markets SET yes_pool = yes_pool + ?, no_pool = no_pool + ? WHERE id = ?',
+)
+const resolveMarket = db.prepare(
+  'UPDATE prediction_markets SET status = ?, resolved_at = ? WHERE id = ?',
+)
+const listBetsByMarket = db.prepare(
+  'SELECT id, username, side, amount, payout, created_at FROM prediction_bets WHERE market_id = ? ORDER BY id',
+)
+const listBetsByUser = db.prepare(
+  'SELECT id, market_id, side, amount, payout, created_at FROM prediction_bets WHERE username = ? ORDER BY id DESC',
+)
+const createBet = db.prepare(
+  'INSERT INTO prediction_bets (market_id, username, side, amount, payout, created_at) VALUES (?, ?, ?, ?, 0, ?)',
+)
+const getBetByMarketAndUser = db.prepare(
+  'SELECT id, side, amount FROM prediction_bets WHERE market_id = ? AND username = ?',
+)
+const markBetPaid = db.prepare(
+  'UPDATE prediction_bets SET payout = ? WHERE id = ?',
+)
+const listBetsForResolution = db.prepare(
+  "SELECT id, username, side, amount FROM prediction_bets WHERE market_id = ? AND payout = 0",
+)
+
+const PREDICT_HOUSE_BPS = 200
 
 for (const [setting, value] of Object.entries(defaultGameSettings)) {
   createGameSetting.run(setting, value)
@@ -1525,6 +1584,199 @@ createServer(async (request, response) => {
 
       sendJson(response, 200, { received: true })
       return
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/markets') {
+      const username = getSessionUsername(request)
+      const markets = listMarkets.all()
+      const result = markets.map((market) => {
+        const bets = listBetsByMarket.all(market.id)
+        const userBet = username ? bets.find((b) => b.username === username) ?? null : null
+        return { ...market, bets, userBet }
+      })
+      sendJson(response, 200, { markets: result })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/markets') {
+      if (getSessionUsername(request) !== adminUsername) {
+        sendJson(response, 403, { error: 'Admin session required.' })
+        return
+      }
+
+      const body = await readJson(request)
+      const question = String(body.question ?? '').trim()
+
+      if (!question) {
+        sendJson(response, 400, { error: 'Question is required.' })
+        return
+      }
+
+      const result = createMarket.run(question, adminUsername, 'open', Date.now())
+      const market = getMarket.get(result.lastInsertRowid)
+      sendJson(response, 201, { market: { ...market, bets: [], userBet: null } })
+      return
+    }
+
+    const marketMatch = url.pathname.match(/^\/api\/markets\/(\d+)\/([^/]+)$/)
+
+    if (marketMatch) {
+      const marketId = Number(marketMatch[1])
+      const marketAction = marketMatch[2]
+      const market = getMarket.get(marketId)
+
+      if (!market) {
+        sendJson(response, 404, { error: 'Market not found.' })
+        return
+      }
+
+      if (request.method === 'POST' && marketAction === 'bet') {
+        const username = getSessionUsername(request)
+
+        if (!username) {
+          sendJson(response, 401, { error: 'Session expired.' })
+          return
+        }
+
+        if (market.status !== 'open') {
+          sendJson(response, 400, { error: 'This market is not open for bets.' })
+          return
+        }
+
+        const body = await readJson(request)
+        const side = String(body.side ?? '')
+        const amount = Math.floor(Number(body.amount) || 0)
+
+        if (side !== 'yes' && side !== 'no') {
+          sendJson(response, 400, { error: 'Side must be yes or no.' })
+          return
+        }
+
+        if (amount <= 0) {
+          sendJson(response, 400, { error: 'Bet amount must be positive.' })
+          return
+        }
+
+        const existingBet = getBetByMarketAndUser.get(marketId, username)
+        if (existingBet) {
+          sendJson(response, 409, { error: 'You already have a bet on this market.' })
+          return
+        }
+
+        db.exec('BEGIN IMMEDIATE')
+        try {
+          const debit = debitCoins.run(amount, username, amount)
+
+          if (debit.changes === 0) {
+            db.exec('ROLLBACK')
+            sendJson(response, 409, { error: 'Insufficient balance.' })
+            return
+          }
+
+          createBet.run(marketId, username, side, amount, Date.now())
+          updateMarketPool.run(side === 'yes' ? amount : 0, side === 'no' ? amount : 0, marketId)
+          logTx(username, -amount, 'predict:bet', `market ${marketId} ${side}`)
+          db.exec('COMMIT')
+        } catch (error) {
+          db.exec('ROLLBACK')
+          throw error
+        }
+
+        const updatedMarket = getMarket.get(marketId)
+        const bets = listBetsByMarket.all(marketId)
+        const userBet = bets.find((b) => b.username === username) ?? null
+        sendJson(response, 200, {
+          market: { ...updatedMarket, bets, userBet },
+          user: publicUser(getUser.get(username)),
+        })
+        return
+      }
+
+      if (request.method === 'POST' && marketAction === 'resolve') {
+        if (getSessionUsername(request) !== adminUsername) {
+          sendJson(response, 403, { error: 'Admin session required.' })
+          return
+        }
+
+        if (market.status !== 'open') {
+          sendJson(response, 400, { error: 'Market is already resolved or cancelled.' })
+          return
+        }
+
+        const body = await readJson(request)
+        const outcome = String(body.outcome ?? '')
+
+        if (outcome !== 'yes' && outcome !== 'no') {
+          sendJson(response, 400, { error: 'Outcome must be yes or no.' })
+          return
+        }
+
+        const status = `resolved_${outcome}`
+        const totalPool = market.yes_pool + market.no_pool
+        const winPool = outcome === 'yes' ? market.yes_pool : market.no_pool
+
+        db.exec('BEGIN IMMEDIATE')
+        try {
+          resolveMarket.run(status, Date.now(), marketId)
+          const betsToSettle = listBetsForResolution.all(marketId)
+
+          for (const bet of betsToSettle) {
+            if (bet.side !== outcome) continue
+            if (winPool <= 0) continue
+
+            const payout = Math.floor((bet.amount * totalPool * (10000 - PREDICT_HOUSE_BPS)) / (winPool * 10000))
+            if (payout > 0) {
+              creditCoins.run(payout, bet.username)
+              logTx(bet.username, payout, 'predict:payout', `market ${marketId} ${outcome}`)
+              markBetPaid.run(payout, bet.id)
+            }
+          }
+
+          db.exec('COMMIT')
+        } catch (error) {
+          db.exec('ROLLBACK')
+          throw error
+        }
+
+        const updatedMarket = getMarket.get(marketId)
+        const bets = listBetsByMarket.all(marketId)
+        sendJson(response, 200, { market: { ...updatedMarket, bets, userBet: null } })
+        return
+      }
+
+      if (request.method === 'POST' && marketAction === 'cancel') {
+        if (getSessionUsername(request) !== adminUsername) {
+          sendJson(response, 403, { error: 'Admin session required.' })
+          return
+        }
+
+        if (market.status !== 'open') {
+          sendJson(response, 400, { error: 'Market is already resolved or cancelled.' })
+          return
+        }
+
+        db.exec('BEGIN IMMEDIATE')
+        try {
+          resolveMarket.run('cancelled', Date.now(), marketId)
+          const betsToRefund = listBetsForResolution.all(marketId)
+
+          for (const bet of betsToRefund) {
+            creditCoins.run(bet.amount, bet.username)
+            logTx(bet.username, bet.amount, 'predict:refund', `market ${marketId} cancelled`)
+            markBetPaid.run(bet.amount, bet.id)
+          }
+
+          db.exec('COMMIT')
+        } catch (error) {
+          db.exec('ROLLBACK')
+          throw error
+        }
+
+        const updatedMarket = getMarket.get(marketId)
+        const bets = listBetsByMarket.all(marketId)
+        sendJson(response, 200, { market: { ...updatedMarket, bets, userBet: null } })
+        return
+      }
     }
 
     sendJson(response, 404, { error: 'Not found' })

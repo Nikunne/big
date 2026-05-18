@@ -85,6 +85,26 @@ type TransactionEntry = {
   note: string
   created_at: number
 }
+type PredictionBet = {
+  id: number
+  username: string
+  side: 'yes' | 'no'
+  amount: number
+  payout: number
+  created_at: number
+}
+type PredictionMarket = {
+  id: number
+  question: string
+  creator: string
+  status: 'open' | 'resolved_yes' | 'resolved_no' | 'cancelled'
+  yes_pool: number
+  no_pool: number
+  created_at: number
+  resolved_at: number
+  bets: PredictionBet[]
+  userBet: PredictionBet | null
+}
 type FloatingDelta = {
   id: number
   game: GameName
@@ -401,6 +421,12 @@ function App() {
   const [txLog, setTxLog] = useState<TransactionEntry[]>([])
   const [txLogLoading, setTxLogLoading] = useState(false)
   const [txLogError, setTxLogError] = useState('')
+  const [markets, setMarkets] = useState<PredictionMarket[]>([])
+  const [marketsLoading, setMarketsLoading] = useState(false)
+  const [newMarketQuestion, setNewMarketQuestion] = useState('')
+  const [newMarketMessage, setNewMarketMessage] = useState('')
+  const [betAmounts, setBetAmounts] = useState<Record<number, string>>({})
+  const [betMessages, setBetMessages] = useState<Record<number, string>>({})
   const [hideZeroBalanceUsers, setHideZeroBalanceUsers] = useState(false)
   const [hideCXUsers, setHideCXUsers] = useState(false)
   const [floatingDeltas, setFloatingDeltas] = useState<FloatingDelta[]>([])
@@ -601,6 +627,16 @@ function App() {
     apiRequest<{ game: BjGameState | null }>(`/api/users/${encodeURIComponent(currentUsername)}/blackjack`)
       .then(({ game }) => { if (isMounted) setBjGame(game) })
       .catch(() => {})
+    return () => { isMounted = false }
+  }, [routePath, currentUsername])
+
+  useEffect(() => {
+    if (routePath !== '/predict') return
+    let isMounted = true
+    setMarketsLoading(true)
+    apiRequest<{ markets: PredictionMarket[] }>('/api/markets')
+      .then(({ markets: loaded }) => { if (isMounted) { setMarkets(loaded); setMarketsLoading(false) } })
+      .catch(() => { if (isMounted) setMarketsLoading(false) })
     return () => { isMounted = false }
   }, [routePath, currentUsername])
 
@@ -2088,6 +2124,9 @@ function App() {
             <button type="button" onClick={() => goToPath('/blackjack')}>
               Blackjack
             </button>
+            <button type="button" onClick={() => goToPath('/predict')}>
+              Predict
+            </button>
             <button type="button" onClick={() => goToPath('/')}>
               Home
             </button>
@@ -2637,6 +2676,11 @@ function App() {
             {currentUsername && (
               <button type="button" onClick={() => goToPath('/blackjack')}>
                 Blackjack
+              </button>
+            )}
+            {currentUsername && (
+              <button type="button" onClick={() => goToPath('/predict')}>
+                Predict
               </button>
             )}
             <button type="button" onClick={() => goToPath('/')}>
@@ -3303,8 +3347,263 @@ function App() {
     )
   }
 
+  const renderPredictPage = () => {
+    const isAdmin = currentUsername === 'niklas'
+
+    const placeBet = async (marketId: number, side: 'yes' | 'no') => {
+      const amount = Math.floor(Number(betAmounts[marketId]) || 0)
+      if (amount <= 0) {
+        setBetMessages((prev) => ({ ...prev, [marketId]: 'Enter a bet amount.' }))
+        return
+      }
+      try {
+        const { market: updated, user: updatedUser } = await apiRequest<{ market: PredictionMarket; user: UserRecord }>(
+          `/api/markets/${marketId}/bet`,
+          { method: 'POST', body: JSON.stringify({ side, amount }) },
+        )
+        setMarkets((prev) => prev.map((m) => (m.id === marketId ? updated : m)))
+        if (updatedUser) upsertUser(updatedUser)
+        setBetMessages((prev) => ({ ...prev, [marketId]: `Bet placed on ${side.toUpperCase()}.` }))
+        setBetAmounts((prev) => ({ ...prev, [marketId]: '' }))
+      } catch (error) {
+        setBetMessages((prev) => ({ ...prev, [marketId]: error instanceof Error ? error.message : 'Bet failed.' }))
+      }
+    }
+
+    const resolveMarketAction = async (marketId: number, outcome: 'yes' | 'no') => {
+      try {
+        const { market: updated } = await apiRequest<{ market: PredictionMarket }>(
+          `/api/markets/${marketId}/resolve`,
+          { method: 'POST', body: JSON.stringify({ outcome }) },
+        )
+        setMarkets((prev) => prev.map((m) => (m.id === marketId ? updated : m)))
+        const { users: refreshed } = await apiRequest<{ users: UserRecord[] }>('/api/users')
+        setUsers(refreshed)
+      } catch (error) {
+        setNewMarketMessage(error instanceof Error ? error.message : 'Resolve failed.')
+      }
+    }
+
+    const cancelMarketAction = async (marketId: number) => {
+      try {
+        const { market: updated } = await apiRequest<{ market: PredictionMarket }>(
+          `/api/markets/${marketId}/cancel`,
+          { method: 'POST' },
+        )
+        setMarkets((prev) => prev.map((m) => (m.id === marketId ? updated : m)))
+        const { users: refreshed } = await apiRequest<{ users: UserRecord[] }>('/api/users')
+        setUsers(refreshed)
+      } catch (error) {
+        setNewMarketMessage(error instanceof Error ? error.message : 'Cancel failed.')
+      }
+    }
+
+    const createMarket = async () => {
+      const question = newMarketQuestion.trim()
+      if (!question) {
+        setNewMarketMessage('Enter a question.')
+        return
+      }
+      try {
+        const { market } = await apiRequest<{ market: PredictionMarket }>(
+          '/api/markets',
+          { method: 'POST', body: JSON.stringify({ question }) },
+        )
+        setMarkets((prev) => [market, ...prev])
+        setNewMarketQuestion('')
+        setNewMarketMessage('')
+      } catch (error) {
+        setNewMarketMessage(error instanceof Error ? error.message : 'Failed to create market.')
+      }
+    }
+
+    const navLinks = (
+      <nav className="site-nav user-nav" aria-label="Predict navigation">
+        <button className="brand-mark nav-button" type="button" onClick={() => goToPath('/')}>
+          BD.FYI
+        </button>
+        <div className="nav-links">
+          {currentUser && (
+            <button type="button" onClick={() => goToPath('/send-money')}>Send money</button>
+          )}
+          {currentUser && (
+            <button type="button" onClick={() => goToPath('/roulette')}>Roulette</button>
+          )}
+          {currentUser && (
+            <button type="button" onClick={() => goToPath('/blackjack')}>Blackjack</button>
+          )}
+          <button type="button" onClick={() => goToPath('/')}>Home</button>
+          {currentUser && (
+            <button type="button" onClick={() => goToPath(`/users/${currentUser.username}`)}>My page</button>
+          )}
+          {currentUser && (
+            <button type="button" onClick={handleLogout}>Log out</button>
+          )}
+        </div>
+      </nav>
+    )
+
+    if (!currentUser) {
+      return (
+        <main className="user-page">
+          {navLinks}
+          <section className="missing-user">
+            <p className="eyebrow">Login required</p>
+            <h1>Predict</h1>
+            <button className="primary-action" type="button" onClick={() => goToPath('/')}>
+              Back home
+            </button>
+          </section>
+        </main>
+      )
+    }
+
+    return (
+      <main className="user-page predict-page">
+        {navLinks}
+
+        <section className="casino-floor" aria-labelledby="predict-title">
+          <div className="casino-copy">
+            <p className="eyebrow">Prediction market</p>
+            <h1 id="predict-title">Predict</h1>
+          </div>
+          <div className="coin-vault">
+            <span>Your balance</span>
+            <strong>{currentUser.coins.toLocaleString()}</strong>
+            <em>coins</em>
+          </div>
+        </section>
+
+        {isAdmin && (
+          <section className="predict-create">
+            <p className="eyebrow">Admin</p>
+            <h2>Create market</h2>
+            <div className="predict-create-form">
+              <input
+                type="text"
+                value={newMarketQuestion}
+                onChange={(e) => setNewMarketQuestion(e.target.value)}
+                placeholder="Will X happen?"
+                maxLength={200}
+              />
+              <button className="game-button" type="button" onClick={createMarket}>
+                Create
+              </button>
+            </div>
+            {newMarketMessage && <p className="form-message">{newMarketMessage}</p>}
+          </section>
+        )}
+
+        <section className="predict-markets">
+          {marketsLoading && <p className="predict-loading">Loading markets...</p>}
+          {!marketsLoading && markets.length === 0 && (
+            <p className="top-list-empty">No markets yet.</p>
+          )}
+          {markets.map((market) => {
+            const totalPool = market.yes_pool + market.no_pool
+            const yesPct = totalPool > 0 ? Math.round((market.yes_pool / totalPool) * 100) : 50
+            const noPct = 100 - yesPct
+            const isOpen = market.status === 'open'
+            const outcome = market.status === 'resolved_yes' ? 'YES' : market.status === 'resolved_no' ? 'NO' : null
+            const userBet = market.userBet
+            const betAmount = betAmounts[market.id] ?? ''
+            const betMessage = betMessages[market.id] ?? ''
+
+            return (
+              <article key={market.id} className={`predict-market ${isOpen ? 'is-open' : 'is-closed'}`}>
+                <div className="predict-question">
+                  <span className="predict-status">
+                    {isOpen ? 'Open' : market.status === 'cancelled' ? 'Cancelled' : `Resolved: ${outcome}`}
+                  </span>
+                  <h3>{market.question}</h3>
+                </div>
+
+                <div className="predict-pools">
+                  <div className="predict-pool predict-pool-yes">
+                    <strong>{market.yes_pool.toLocaleString()}</strong>
+                    <span>YES · {yesPct}%</span>
+                  </div>
+                  <div className="predict-bar">
+                    <div className="predict-bar-yes" style={{ width: `${yesPct}%` }} />
+                    <div className="predict-bar-no" style={{ width: `${noPct}%` }} />
+                  </div>
+                  <div className="predict-pool predict-pool-no">
+                    <strong>{market.no_pool.toLocaleString()}</strong>
+                    <span>NO · {noPct}%</span>
+                  </div>
+                </div>
+
+                {userBet && (
+                  <p className="predict-your-bet">
+                    Your bet: <strong>{userBet.amount.toLocaleString()} coins on {userBet.side.toUpperCase()}</strong>
+                    {userBet.payout > 0 && <span> → paid out {userBet.payout.toLocaleString()} coins</span>}
+                  </p>
+                )}
+
+                {isOpen && !userBet && (
+                  <div className="predict-bet-form">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      value={betAmount}
+                      onChange={(e) => setBetAmounts((prev) => ({ ...prev, [market.id]: e.target.value }))}
+                      placeholder="Coins"
+                    />
+                    <button className="game-button predict-yes-btn" type="button" onClick={() => placeBet(market.id, 'yes')}>
+                      Bet YES
+                    </button>
+                    <button className="game-button predict-no-btn" type="button" onClick={() => placeBet(market.id, 'no')}>
+                      Bet NO
+                    </button>
+                  </div>
+                )}
+
+                {betMessage && <p className="form-message">{betMessage}</p>}
+
+                {isAdmin && isOpen && (
+                  <div className="predict-admin-actions">
+                    <button className="game-button predict-yes-btn" type="button" onClick={() => resolveMarketAction(market.id, 'yes')}>
+                      Resolve YES
+                    </button>
+                    <button className="game-button predict-no-btn" type="button" onClick={() => resolveMarketAction(market.id, 'no')}>
+                      Resolve NO
+                    </button>
+                    <button className="game-button alt" type="button" onClick={() => cancelMarketAction(market.id)}>
+                      Cancel
+                    </button>
+                  </div>
+                )}
+
+                {market.bets.length > 0 && (
+                  <details className="predict-bets-list">
+                    <summary>{market.bets.length} bet{market.bets.length !== 1 ? 's' : ''}</summary>
+                    <ul>
+                      {market.bets.map((bet) => (
+                        <li key={bet.id}>
+                          <strong>{bet.username}</strong> — {bet.amount.toLocaleString()} on {bet.side.toUpperCase()}
+                          {bet.payout > 0 && <span> (paid {bet.payout.toLocaleString()})</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </article>
+            )
+          })}
+        </section>
+
+        {showPasswordPanel && renderPasswordPanel()}
+      </main>
+    )
+  }
+
   if (routePath.match(/^\/users\/[^/]+\/log$/)) {
     return renderTransactionLogPage()
+  }
+
+  if (routePath === '/predict') {
+    return renderPredictPage()
   }
 
   if (routePath === '/send-money') {
@@ -3344,6 +3643,11 @@ function App() {
             {currentUser && (
               <button type="button" onClick={() => goToPath('/blackjack')}>
                 Blackjack
+              </button>
+            )}
+            {currentUser && (
+              <button type="button" onClick={() => goToPath('/predict')}>
+                Predict
               </button>
             )}
             {menuItems.map((item) => (
