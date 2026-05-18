@@ -127,6 +127,7 @@ db.exec(`
     status TEXT NOT NULL DEFAULT 'open',
     yes_pool INTEGER NOT NULL DEFAULT 0,
     no_pool INTEGER NOT NULL DEFAULT 0,
+    seed_yes_pct INTEGER NOT NULL DEFAULT 50,
     created_at INTEGER NOT NULL,
     resolved_at INTEGER NOT NULL DEFAULT 0
   );
@@ -407,14 +408,19 @@ const listTransactions = db.prepare(
 )
 
 const listMarkets = db.prepare(
-  'SELECT id, question, creator, status, yes_pool, no_pool, created_at, resolved_at FROM prediction_markets ORDER BY id DESC',
+  'SELECT id, question, creator, status, yes_pool, no_pool, seed_yes_pct, created_at, resolved_at FROM prediction_markets ORDER BY id DESC',
 )
 const getMarket = db.prepare(
-  'SELECT id, question, creator, status, yes_pool, no_pool, created_at, resolved_at FROM prediction_markets WHERE id = ?',
+  'SELECT id, question, creator, status, yes_pool, no_pool, seed_yes_pct, created_at, resolved_at FROM prediction_markets WHERE id = ?',
 )
 const createMarket = db.prepare(
-  'INSERT INTO prediction_markets (question, creator, status, yes_pool, no_pool, created_at) VALUES (?, ?, ?, 0, 0, ?)',
+  'INSERT INTO prediction_markets (question, creator, status, yes_pool, no_pool, seed_yes_pct, created_at) VALUES (?, ?, ?, 0, 0, ?, ?)',
 )
+
+const marketColumns = new Set(db.prepare('PRAGMA table_info(prediction_markets)').all().map((c) => c.name))
+if (!marketColumns.has('seed_yes_pct')) {
+  db.exec('ALTER TABLE prediction_markets ADD COLUMN seed_yes_pct INTEGER NOT NULL DEFAULT 50')
+}
 const updateMarketPool = db.prepare(
   'UPDATE prediction_markets SET yes_pool = yes_pool + ?, no_pool = no_pool + ? WHERE id = ?',
 )
@@ -1606,13 +1612,14 @@ createServer(async (request, response) => {
 
       const body = await readJson(request)
       const question = String(body.question ?? '').trim()
+      const seedYesPct = Math.min(99, Math.max(1, Math.floor(Number(body.seedYesPct) || 50)))
 
       if (!question) {
         sendJson(response, 400, { error: 'Question is required.' })
         return
       }
 
-      const result = createMarket.run(question, adminUsername, 'open', Date.now())
+      const result = createMarket.run(question, adminUsername, 'open', seedYesPct, Date.now())
       const market = getMarket.get(result.lastInsertRowid)
       sendJson(response, 201, { market: { ...market, bets: [], userBet: null } })
       return

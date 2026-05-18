@@ -3362,34 +3362,101 @@ button:focus-visible {
   color: #fffdf5;
 }
 
+.predict-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px clamp(16px, 4vw, 48px) 24px;
+  border-bottom: 2px solid #1e1e1e;
+}
+
+.predict-header h1 {
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 900;
+  margin: 4px 0 0;
+  color: #fffdf5;
+}
+
+.predict-balance {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.predict-balance span,
+.predict-balance em {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #888;
+  font-style: normal;
+}
+
+.predict-balance strong {
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  font-weight: 900;
+  color: #fffdf5;
+  line-height: 1;
+}
+
 .predict-create {
   max-width: 860px;
   margin: 0 auto;
-  padding: 32px clamp(16px, 4vw, 48px);
+  padding: 28px clamp(16px, 4vw, 48px);
   border-bottom: 2px solid #1e1e1e;
 }
 
 .predict-create h2 {
-  font-size: clamp(1.4rem, 3vw, 2rem);
+  font-size: clamp(1.2rem, 2.5vw, 1.6rem);
   font-weight: 900;
-  margin: 4px 0 20px;
+  margin: 4px 0 16px;
 }
 
 .predict-create-form {
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  flex-wrap: wrap;
 }
 
-.predict-create-form input {
-  flex: 1;
-  min-width: 200px;
+.predict-create-form > input[type="text"] {
+  width: 100%;
   padding: 10px 14px;
   font-size: 1rem;
   background: #1a1a1a;
   border: 2px solid #333;
   color: #fffdf5;
   border-radius: 6px;
+  box-sizing: border-box;
+}
+
+.predict-seed-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.predict-seed-label {
+  font-size: 0.85rem;
+  color: #aaa;
+}
+
+.predict-seed-label strong {
+  color: #fffdf5;
+}
+
+.predict-create-form input[type="range"] {
+  width: 100%;
+  accent-color: #4cff91;
+}
+
+.predict-create-form .game-button {
+  align-self: flex-start;
 }
 
 .predict-markets {

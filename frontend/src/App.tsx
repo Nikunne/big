@@ -100,6 +100,7 @@ type PredictionMarket = {
   status: 'open' | 'resolved_yes' | 'resolved_no' | 'cancelled'
   yes_pool: number
   no_pool: number
+  seed_yes_pct: number
   created_at: number
   resolved_at: number
   bets: PredictionBet[]
@@ -3398,6 +3399,8 @@ function App() {
       }
     }
 
+    const [newMarketSeedPct, setNewMarketSeedPct] = useState(50)
+
     const createMarket = async () => {
       const question = newMarketQuestion.trim()
       if (!question) {
@@ -3407,7 +3410,7 @@ function App() {
       try {
         const { market } = await apiRequest<{ market: PredictionMarket }>(
           '/api/markets',
-          { method: 'POST', body: JSON.stringify({ question }) },
+          { method: 'POST', body: JSON.stringify({ question, seedYesPct: newMarketSeedPct }) },
         )
         setMarkets((prev) => [market, ...prev])
         setNewMarketQuestion('')
@@ -3462,13 +3465,13 @@ function App() {
       <main className="user-page predict-page">
         {navLinks}
 
-        <section className="casino-floor" aria-labelledby="predict-title">
-          <div className="casino-copy">
+        <section className="predict-header">
+          <div>
             <p className="eyebrow">Prediction market</p>
-            <h1 id="predict-title">Predict</h1>
+            <h1>Predict</h1>
           </div>
-          <div className="coin-vault">
-            <span>Your balance</span>
+          <div className="predict-balance">
+            <span>Balance</span>
             <strong>{currentUser.coins.toLocaleString()}</strong>
             <em>coins</em>
           </div>
@@ -3486,6 +3489,18 @@ function App() {
                 placeholder="Will X happen?"
                 maxLength={200}
               />
+              <div className="predict-seed-row">
+                <label className="predict-seed-label">
+                  Initial YES probability: <strong>{newMarketSeedPct}%</strong>
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="99"
+                  value={newMarketSeedPct}
+                  onChange={(e) => setNewMarketSeedPct(Number(e.target.value))}
+                />
+              </div>
               <button className="game-button" type="button" onClick={createMarket}>
                 Create
               </button>
@@ -3501,7 +3516,7 @@ function App() {
           )}
           {markets.map((market) => {
             const totalPool = market.yes_pool + market.no_pool
-            const yesPct = totalPool > 0 ? Math.round((market.yes_pool / totalPool) * 100) : 50
+            const yesPct = totalPool > 0 ? Math.round((market.yes_pool / totalPool) * 100) : market.seed_yes_pct
             const noPct = 100 - yesPct
             const isOpen = market.status === 'open'
             const outcome = market.status === 'resolved_yes' ? 'YES' : market.status === 'resolved_no' ? 'NO' : null
