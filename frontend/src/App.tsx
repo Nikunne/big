@@ -364,6 +364,7 @@ function App() {
   const [posterRotation, setPosterRotation] = useState(0)
   const [users, setUsers] = useState<UserRecord[]>([])
   const [isLoadingUsers, setIsLoadingUsers] = useState(true)
+  const [isLoadingSession, setIsLoadingSession] = useState(true)
   const [currentUsername, setCurrentUsername] = useState('')
   const [routePath, setRoutePath] = useState(() => window.location.pathname)
   const [authMode, setAuthMode] = useState<AuthMode>('login')
@@ -586,6 +587,7 @@ function App() {
 
     if (!getStoredSessionToken()) {
       clearSession()
+      setIsLoadingSession(false)
       return () => {
         isMounted = false
       }
@@ -597,12 +599,14 @@ function App() {
           upsertUser(user)
           setCurrentUsername(user.username)
           window.localStorage.setItem(SESSION_STORAGE_KEY, user.username)
+          setIsLoadingSession(false)
         }
       })
       .catch(() => {
         if (isMounted) {
           clearSession()
           setCurrentUsername('')
+          setIsLoadingSession(false)
         }
       })
 
@@ -2084,7 +2088,7 @@ function App() {
     const possibleRecipients = users.filter((user) => user.username !== currentUsername)
     const selectedRecipient = users.find((user) => user.username === transferRecipient)
 
-    if (isLoadingUsers) {
+    if (isLoadingUsers || isLoadingSession) {
       return (
         <main className="user-page">
           <section className="missing-user">
@@ -2230,7 +2234,7 @@ function App() {
       { label: '19-36', numbers: ROULETTE_CHOICES.filter((number) => number >= 19) },
     ]
 
-    if (isLoadingUsers) {
+    if (isLoadingUsers || isLoadingSession) {
       return (
         <main className="user-page">
           <section className="missing-user">
@@ -2623,7 +2627,7 @@ function App() {
   }
 
   const renderCasinoPage = () => {
-    if (isLoadingUsers) {
+    if (isLoadingUsers || isLoadingSession) {
       return (
         <main className="user-page">
           <section className="missing-user">
@@ -3445,6 +3449,18 @@ function App() {
         </div>
       </nav>
     )
+
+    if (isLoadingUsers || isLoadingSession) {
+      return (
+        <main className="user-page">
+          {navLinks}
+          <section className="missing-user">
+            <p className="eyebrow">Loading database</p>
+            <h1>Fetching users</h1>
+          </section>
+        </main>
+      )
+    }
 
     if (!currentUser) {
       return (
